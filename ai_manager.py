@@ -8,6 +8,7 @@ import json
 import logging
 from datetime import datetime
 from models_config import MODELS_CONFIG, get_all_models, get_model_info, get_provider_for_model
+import pprint
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -121,7 +122,7 @@ class AIManager:
             Tuple[str, Dict]: (resposta, metadados com contagem de tokens)
         """
         tokens_info = {
-            'request_tokens': self.count_request_tokens(prompt, model),
+            'request_tokens': 0,
             'response_tokens': 0,
             'total_tokens': 0,
             'model_used': model,
@@ -141,6 +142,35 @@ class AIManager:
             # Usar max_tokens do modelo se disponível
             if max_tokens == 2000:  # Valor padrão
                 max_tokens = model_info.get("max_tokens", 2000)
+            
+            # Aplicar instruções específicas do modelo
+            from app import get_model_instructions, format_instructions_for_provider, format_conclusion_for_provider
+            
+            instructions = get_model_instructions(model)
+            if instructions:
+                # Adicionar instruções no início
+                formatted_instructions = format_instructions_for_provider(instructions, provider, model)
+                if formatted_instructions:
+                    if isinstance(formatted_instructions, dict) and "system_message" in formatted_instructions:
+                        # Usar system message para OpenAI e Anthropic
+                        system_message = formatted_instructions["system_message"]
+                        user_prefix = formatted_instructions.get("user_prefix", "")
+                        if user_prefix:
+                            prompt = user_prefix + " " + prompt
+                        
+                        # Armazenar system message para uso nos métodos de chamada
+                        self._current_system_message = system_message
+                    else:
+                        # Formato antigo (Google ou fallback)
+                        prompt = formatted_instructions + prompt
+                
+                # Adicionar conclusão no final
+                conclusion = format_conclusion_for_provider(instructions, provider)
+                if conclusion:
+                    prompt = prompt + conclusion
+            
+            # Contar tokens após aplicar instruções
+            tokens_info['request_tokens'] = self.count_request_tokens(prompt, model)
             
             if provider == "openai" and self.openai_client:
                 response = self._call_openai(prompt, model, max_tokens)
@@ -178,66 +208,148 @@ class AIManager:
     
     def _call_openai(self, prompt: str, model: str, max_tokens: int) -> str:
         """Chama API da OpenAI"""
+        # Verificar se há system message disponível
+        system_message = None
+        if hasattr(self, '_current_system_message'):
+            system_message = self._current_system_message
+            delattr(self, '_current_system_message')
+        
+        # Preparar mensagens
+        messages = []
+        if system_message:
+            messages.append({"role": "system", "content": system_message})
+        messages.append({"role": "user", "content": prompt})
+        
+        # Log do payload para debug
+        logger.debug("[OpenAI] Payload enviado:")
+        logger.debug(pprint.pformat({
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens
+        }))
+        
         # Verificar se é um modelo O3/O4 que usa max_completion_tokens
         if model.startswith('o3-') or model.startswith('o4-'):
             response = self.openai_client.chat.completions.create(
                 model=model,
-                messages=[{"role": "user", "content": prompt}],
-                max_completion_tokens=max_tokens
-                # Modelos O3/O4 não suportam temperature personalizada
+                messages=messages,
+                max_completion_tokens=max_tokens,
+                temperature=0.3
             )
         else:
-            # Modelos GPT tradicionais usam max_tokens e temperature
             response = self.openai_client.chat.completions.create(
                 model=model,
-                messages=[{"role": "user", "content": prompt}],
+                messages=messages,
                 max_tokens=max_tokens,
                 temperature=0.3
             )
         return response.choices[0].message.content
     
     def _call_anthropic(self, prompt: str, model: str, max_tokens: int) -> str:
-        """Chama API da Anthropic com streaming para requisições longas"""
-        try:
-            # Tentar primeiro sem streaming
-            response = self.anthropic_client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            return response.content[0].text
-        except Exception as e:
-            error_msg = str(e)
-            if "Streaming is strongly recommended" in error_msg or "longer than 10 minutes" in error_msg:
-                logger.info(f"Usando streaming para modelo {model} devido a requisição longa")
-                return self._call_anthropic_streaming(prompt, model, max_tokens)
-            else:
-                raise e
+        """Chama API da Anthropic"""
+        system_message = None
+        if hasattr(self, '_current_system_message'):
+            system_message = self._current_system_message
+            delattr(self, '_current_system_message')
+        
+        # Log do payload para debug
+        logger.debug("[Anthropic] Payload enviado:")
+        logger.debug(pprint.pformat({
+            "model": model,
+            "system": system_message,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens
+        }))
+        
+        if len(prompt) > 1000:
+            return self._call_anthropic_streaming(prompt, model, max_tokens, system_message)
+        
+        response = self.anthropic_client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            system=system_message
+        )
+        return response.content[0].text
     
-    def _call_anthropic_streaming(self, prompt: str, model: str, max_tokens: int) -> str:
-        """Chama API da Anthropic com streaming"""
-        try:
-            full_response = ""
-            with self.anthropic_client.messages.stream(
-                model=model,
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}]
-            ) as stream:
-                for message in stream:
-                    if message.type == "content_block_delta":
-                        full_response += message.delta.text
-                    elif message.type == "message_stop":
-                        break
-            
-            return full_response
-        except Exception as e:
-            logger.error(f"Erro no streaming da Anthropic: {e}")
-            raise e
+    def _call_anthropic_streaming(self, prompt: str, model: str, max_tokens: int, system_message: str = None) -> str:
+        # Log do payload para debug
+        logger.debug("[Anthropic-Streaming] Payload enviado:")
+        logger.debug(pprint.pformat({
+            "model": model,
+            "system": system_message,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens
+        }))
+        response = self.anthropic_client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            stream=True,
+            system=system_message
+        )
+        full_response = ""
+        for chunk in response:
+            if chunk.type == "content_block_delta":
+                full_response += chunk.delta.text
+        return full_response
     
     def _call_google(self, prompt: str, model: str, max_tokens: int) -> str:
         """Chama API do Google"""
-        model_obj = self.google_genai.GenerativeModel(model)
-        response = model_obj.generate_content(prompt)
+        system_message = None
+        if hasattr(self, '_current_system_message'):
+            system_message = self._current_system_message
+            delattr(self, '_current_system_message')
+        import google.generativeai as genai
+        model_obj = genai.GenerativeModel(model)
+        generation_config = genai.types.GenerationConfig(
+            max_output_tokens=max_tokens,
+            temperature=0.3
+        )
+        system_instructions = None
+        if system_message:
+            system_instructions = []
+            for line in system_message.split('\n'):
+                line = line.strip()
+                if line and not line.startswith('Você é:') and not line.startswith('Restrições:'):
+                    system_instructions.append(line)
+                elif line.startswith('Você é:'):
+                    persona = line.replace('Você é:', '').strip()
+                    if persona:
+                        system_instructions.append(persona)
+                elif line.startswith('Restrições:'):
+                    restrictions = line.replace('Restrições:', '').strip()
+                    if restrictions:
+                        system_instructions.append(restrictions)
+        # Log do payload para debug
+        logger.debug("[Google Gemini] Payload enviado:")
+        logger.debug(pprint.pformat({
+            "model": model,
+            "system_instruction": system_instructions,
+            "prompt": prompt,
+            "max_output_tokens": max_tokens
+        }))
+        if system_instructions:
+            try:
+                response = model_obj.generate_content(
+                    prompt,
+                    generation_config=generation_config,
+                    system_instruction=system_instructions
+                )
+            except TypeError:
+                system_text = "\n".join(system_instructions)
+                full_prompt = f"{system_text}\n\n{prompt}"
+                response = model_obj.generate_content(
+                    full_prompt,
+                    generation_config=generation_config
+                )
+        else:
+            response = model_obj.generate_content(
+                prompt,
+                generation_config=generation_config
+            )
         return response.text
     
     def _simulate_response(self, prompt: str) -> str:

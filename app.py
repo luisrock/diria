@@ -3,7 +3,7 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.urls import url_parse
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 from dotenv import load_dotenv
 import re
@@ -34,7 +34,7 @@ class User(db.Model):
     is_admin = db.Column(db.Boolean, default=False)
     is_active = db.Column(db.Boolean, default=True)
     first_login = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -57,7 +57,7 @@ class Prompt(db.Model):
     content = db.Column(db.Text, nullable=False)
     ai_model = db.Column(db.String(50), nullable=False)
     is_default = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
 
 class UsageLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -69,7 +69,7 @@ class UsageLog(db.Model):
     model_used = db.Column(db.String(50), nullable=True)
     success = db.Column(db.Boolean, default=True)
     error_message = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     
     user = db.relationship('User', backref=db.backref('logs', lazy=True))
 
@@ -78,7 +78,18 @@ class AppConfig(db.Model):
     key = db.Column(db.String(100), unique=True, nullable=False)
     value = db.Column(db.Text, nullable=False)
     description = db.Column(db.Text, nullable=True)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
+
+class ModelInstructions(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    model_id = db.Column(db.String(100), unique=True, nullable=False)
+    persona = db.Column(db.Text, nullable=True)
+    restrictions = db.Column(db.Text, nullable=True)
+    introduction = db.Column(db.Text, nullable=True)
+    conclusion = db.Column(db.Text, nullable=True)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -104,6 +115,84 @@ def set_app_config(key, value, description=None):
 def get_default_ai_model():
     """Obtém o modelo de IA padrão da aplicação"""
     return get_app_config('default_ai_model', 'gemini-2.5-pro')
+
+def get_model_instructions(model_id):
+    """Obtém as instruções específicas de um modelo"""
+    instructions = ModelInstructions.query.filter_by(model_id=model_id, is_active=True).first()
+    return instructions
+
+def format_instructions_for_provider(instructions, provider, model_id):
+    """Formata as instruções de acordo com o provedor da API"""
+    if not instructions:
+        return ""
+    
+    formatted_prompt = ""
+    
+    if provider == "openai":
+        # OpenAI: Usar system message para persona e restrições
+        system_message = ""
+        if instructions.persona:
+            system_message += f"Você é: {instructions.persona}\n\n"
+        if instructions.restrictions:
+            system_message += f"Restrições: {instructions.restrictions}\n\n"
+        
+        # Se há system message, retornar como dicionário para ser usado como system message
+        if system_message:
+            return {
+                "system_message": system_message.strip(),
+                "user_prefix": instructions.introduction if instructions.introduction else ""
+            }
+        else:
+            # Fallback para formato antigo se não há persona/restrições
+            if instructions.introduction:
+                formatted_prompt += f"Introdução: {instructions.introduction}\n\n"
+    
+    elif provider == "anthropic":
+        # Anthropic: Usar system message para persona e restrições
+        system_message = ""
+        if instructions.persona:
+            system_message += f"Você é: {instructions.persona}\n\n"
+        if instructions.restrictions:
+            system_message += f"Restrições: {instructions.restrictions}\n\n"
+        
+        # Se há system message, retornar como dicionário para ser usado como system message
+        if system_message:
+            return {
+                "system_message": system_message.strip(),
+                "user_prefix": instructions.introduction if instructions.introduction else ""
+            }
+        else:
+            # Fallback para formato antigo se não há persona/restrições
+            if instructions.introduction:
+                formatted_prompt += f"Introdução: {instructions.introduction}\n\n"
+    
+    elif provider == "google":
+        # Google: Usar system_instruction (nova funcionalidade)
+        system_message = ""
+        if instructions.persona:
+            system_message += f"Você é: {instructions.persona}\n\n"
+        if instructions.restrictions:
+            system_message += f"Restrições: {instructions.restrictions}\n\n"
+        
+        # Se há system message, retornar como dicionário para ser usado como system_instruction
+        if system_message:
+            return {
+                "system_message": system_message.strip(),
+                "user_prefix": instructions.introduction if instructions.introduction else ""
+            }
+        else:
+            # Fallback para formato antigo se não há persona/restrições
+            if instructions.introduction:
+                formatted_prompt += f"Introdução: {instructions.introduction}\n\n"
+    
+    return formatted_prompt
+
+def format_conclusion_for_provider(instructions, provider):
+    """Formata a conclusão de acordo com o provedor da API"""
+    if not instructions or not instructions.conclusion:
+        return ""
+    
+    return f"\n\n{instructions.conclusion}"
 
 # Rotas
 @app.route('/')
@@ -475,6 +564,32 @@ def admin_prompts():
                 db.session.delete(prompt)
                 db.session.commit()
                 flash('Prompt excluído com sucesso.', 'success')
+        
+        elif action == 'update':
+            prompt_id = request.form.get('prompt_id')
+            name = request.form.get('name')
+            content = request.form.get('content')
+            ai_model = request.form.get('ai_model')
+            is_default = request.form.get('is_default') == 'on'
+            
+            if prompt_id:
+                prompt = db.session.get(Prompt, int(prompt_id))
+                if prompt:
+                    if is_default:
+                        # Desmarcar outros prompts como default
+                        Prompt.query.update({'is_default': False})
+                    
+                    prompt.name = name
+                    prompt.content = content
+                    prompt.ai_model = ai_model
+                    prompt.is_default = is_default
+                    
+                    db.session.commit()
+                    flash('Prompt atualizado com sucesso.', 'success')
+                else:
+                    flash('Prompt não encontrado.', 'error')
+            else:
+                flash('ID do prompt não fornecido.', 'error')
     
     prompts = Prompt.query.all()
     
@@ -554,7 +669,7 @@ def admin_stats():
     
     # Últimos 7 dias
     from datetime import timedelta
-    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
     recent_logs = UsageLog.query.filter(
         UsageLog.created_at >= seven_days_ago
     ).count()
@@ -642,6 +757,150 @@ def admin_config():
     return render_template('admin_config.html', 
                          current_default_model=current_default_model,
                          available_models=available_models)
+
+@app.route('/admin/instructions', methods=['GET', 'POST'])
+@login_required
+def admin_instructions():
+    if not current_user.is_admin:
+        flash('Acesso negado. Apenas administradores podem acessar esta página.', 'error')
+        return redirect(url_for('dashboard'))
+    
+    if request.method == 'POST':
+        action = request.form.get('action')
+        
+        if action == 'create':
+            model_id = request.form.get('model_id')
+            persona = request.form.get('persona')
+            restrictions = request.form.get('restrictions')
+            introduction = request.form.get('introduction')
+            conclusion = request.form.get('conclusion')
+            is_active = request.form.get('is_active') == 'on'
+            
+            # Verificar se já existe instrução para este modelo
+            existing = ModelInstructions.query.filter_by(model_id=model_id).first()
+            if existing:
+                flash(f'Já existem instruções configuradas para o modelo {model_id}. Use a opção de edição.', 'error')
+            else:
+                instruction = ModelInstructions(
+                    model_id=model_id,
+                    persona=persona,
+                    restrictions=restrictions,
+                    introduction=introduction,
+                    conclusion=conclusion,
+                    is_active=is_active
+                )
+                db.session.add(instruction)
+                db.session.commit()
+                flash(f'Instruções criadas com sucesso para o modelo {model_id}.', 'success')
+        
+        elif action == 'update':
+            model_id = request.form.get('model_id')
+            persona = request.form.get('persona')
+            restrictions = request.form.get('restrictions')
+            introduction = request.form.get('introduction')
+            conclusion = request.form.get('conclusion')
+            is_active = request.form.get('is_active') == 'on'
+            
+            instruction = ModelInstructions.query.filter_by(model_id=model_id).first()
+            if instruction:
+                instruction.persona = persona
+                instruction.restrictions = restrictions
+                instruction.introduction = introduction
+                instruction.conclusion = conclusion
+                instruction.is_active = is_active
+                instruction.updated_at = datetime.now(timezone.utc)
+                db.session.commit()
+                flash(f'Instruções atualizadas com sucesso para o modelo {model_id}.', 'success')
+            else:
+                flash(f'Instruções não encontradas para o modelo {model_id}.', 'error')
+        
+        elif action == 'delete':
+            model_id = request.form.get('model_id')
+            instruction = ModelInstructions.query.filter_by(model_id=model_id).first()
+            if instruction:
+                db.session.delete(instruction)
+                db.session.commit()
+                flash(f'Instruções excluídas com sucesso para o modelo {model_id}.', 'success')
+            else:
+                flash(f'Instruções não encontradas para o modelo {model_id}.', 'error')
+        
+        elif action == 'apply_to_all':
+            # Aplicar instruções a todos os modelos disponíveis
+            persona = request.form.get('persona')
+            restrictions = request.form.get('restrictions')
+            introduction = request.form.get('introduction')
+            conclusion = request.form.get('conclusion')
+            is_active = request.form.get('is_active') == 'on'
+            
+            # Obter todos os modelos disponíveis
+            from models_config import get_all_models
+            all_model_ids = get_all_models()
+            
+            success_count = 0
+            error_count = 0
+            
+            for model_id in all_model_ids:
+                try:
+                    # Verificar se já existe instrução para este modelo
+                    existing = ModelInstructions.query.filter_by(model_id=model_id).first()
+                    
+                    if existing:
+                        # Atualizar instrução existente
+                        existing.persona = persona
+                        existing.restrictions = restrictions
+                        existing.introduction = introduction
+                        existing.conclusion = conclusion
+                        existing.is_active = is_active
+                        existing.updated_at = datetime.now(timezone.utc)
+                    else:
+                        # Criar nova instrução
+                        instruction = ModelInstructions(
+                            model_id=model_id,
+                            persona=persona,
+                            restrictions=restrictions,
+                            introduction=introduction,
+                            conclusion=conclusion,
+                            is_active=is_active
+                        )
+                        db.session.add(instruction)
+                    
+                    success_count += 1
+                except Exception as e:
+                    error_count += 1
+                    logger.error(f"Erro ao aplicar instruções para modelo {model_id}: {e}")
+            
+            db.session.commit()
+            
+            if request.headers.get('Accept') == 'application/json':
+                return jsonify({
+                    'success': True,
+                    'message': f'Instruções aplicadas com sucesso a {success_count} modelos.',
+                    'success_count': success_count,
+                    'error_count': error_count
+                })
+            else:
+                if error_count == 0:
+                    flash(f'Instruções aplicadas com sucesso a {success_count} modelos.', 'success')
+                else:
+                    flash(f'Instruções aplicadas a {success_count} modelos. {error_count} erros ocorreram.', 'warning')
+    
+    # Obter dados para o template
+    from models_config import get_all_models, get_model_info
+    available_models = []
+    for model_id in get_all_models():
+        info = get_model_info(model_id)
+        if info:
+            available_models.append({
+                'id': model_id,
+                'name': f"{info['display_name']} ({info['provider_name']})",
+                'provider': info['provider_name'],
+                'description': info['description']
+            })
+    instructions_list = ModelInstructions.query.order_by(ModelInstructions.model_id).all()
+    
+    return render_template('admin_instructions.html', 
+                         available_models=available_models,
+                         instructions_list=instructions_list)
 
 # Inicialização do banco de dados
 def init_db():

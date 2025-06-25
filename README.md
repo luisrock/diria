@@ -197,6 +197,45 @@ diria/
 - Logs de sucesso/erro
 - Métricas de performance
 
+### 🔍 Logs de Debug
+
+O sistema possui logs detalhados dos payloads enviados para as APIs de IA, mas eles estão configurados em nível DEBUG para não poluir o terminal durante o uso normal.
+
+#### Para ativar logs de debug:
+
+**Opção 1: Temporariamente no código**
+```python
+# Em ai_manager.py, linha 12, altere:
+logging.basicConfig(level=logging.DEBUG)  # Em vez de logging.INFO
+```
+
+**Opção 2: Via variável de ambiente**
+```bash
+export PYTHONPATH=/caminho/para/diria
+export LOG_LEVEL=DEBUG
+python app.py
+```
+
+**Opção 3: Via linha de comando (futuro)**
+```bash
+python app.py --debug
+```
+
+#### O que os logs mostram:
+- **OpenAI**: Payload completo com `model`, `messages` (system + user), `max_completion_tokens`, `temperature`
+- **Anthropic**: Payload com `model`, `system`, `messages`, `max_tokens`, `temperature`
+- **Google Gemini**: Payload com `model`, `system_instruction`, `prompt`, `generation_config`
+
+#### Exemplo de log:
+```
+DEBUG:ai_manager:[OpenAI] Payload enviado:
+DEBUG:ai_manager:{'model': 'gpt-4o-mini',
+                  'messages': [{'role': 'system', 'content': 'Você é um assistente...'},
+                              {'role': 'user', 'content': 'Gere uma minuta...'}],
+                  'max_completion_tokens': 2000,
+                  'temperature': 0.7}
+```
+
 ## 🤝 Contribuição
 
 1. Fork o projeto
