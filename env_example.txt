@@ -1,0 +1,11 @@
+# Configurações do Flask
+SECRET_KEY=87ae829ef813e612d317267e06f07ab4c0bd05b815ec4e05fdb750a5521f1355
+FLASK_ENV=development
+
+# Configurações de Banco de Dados
+DATABASE_URL=sqlite:///diria.db
+
+# Chaves de API dos modelos de IA
+OPENAI_API_KEY=sua_chave_openai_aqui
+ANTHROPIC_API_KEY=sua_chave_anthropic_aqui
+GOOGLE_API_KEY=sua_chave_google_aqui 

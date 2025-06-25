@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+
+{% block title %}Gerenciar Prompts - DIRIA{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="bg-white shadow-lg rounded-lg p-6">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <i class="fas fa-magic text-3xl text-green-600"></i>
+                </div>
+                <div class="ml-4">
+                    <h1 class="text-2xl font-bold text-gray-900">Gerenciar Prompts</h1>
+                    <p class="text-sm text-gray-600">Configure modelos de IA e prompts personalizados</p>
+                </div>
+            </div>
+            <a href="{{ url_for('admin_panel') }}" 
+               class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                <i class="fas fa-arrow-left mr-2"></i>
+                Voltar
+            </a>
+        </div>
+    </div>
+
+    <!-- Formulário de Adição de Prompt -->
+    <div class="bg-white shadow-lg rounded-lg p-6">
+        <h3 class="text-lg font-medium text-gray-900 mb-4">
+            <i class="fas fa-plus mr-2 text-green-600"></i>
+            Adicionar Novo Prompt
+        </h3>
+        <form method="POST" class="space-y-4">
+            <input type="hidden" name="action" value="create">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label for="name" class="block text-sm font-medium text-gray-700">Nome do Prompt</label>
+                    <input type="text" id="name" name="name" required
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                           placeholder="Ex: Decisão Padrão">
+                </div>
+                <div>
+                    <label for="ai_model" class="block text-sm font-medium text-gray-700">Modelo de IA</label>
+                    <select id="ai_model" name="ai_model" required
+                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
+                        {% for provider, models in models_by_provider.items() %}
+                        <optgroup label="{{ provider|title }}">
+                            {% for model in models %}
+                            <option value="{{ model.id }}" {% if model.id == default_model %}selected{% endif %}>
+                                {{ model.display_name }} - {{ model.description }}
+                            </option>
+                            {% endfor %}
+                        </optgroup>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div>
+                <label for="content" class="block text-sm font-medium text-gray-700">Conteúdo do Prompt</label>
+                <textarea id="content" name="content" rows="6" required
+                          class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
+                          placeholder="Digite o prompt aqui. Use {{placeholder}} para campos do formulário..."></textarea>
+                <div class="mt-2">
+                    <p class="text-xs text-gray-600 mb-2">Placeholders disponíveis (clique para copiar):</p>
+                    <div class="flex flex-wrap gap-2">
+                        <button type="button" onclick="copyPlaceholder('{{numero_processo}}', this)" 
+                                class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
+                            {{ "{{numero_processo}}" }}
+                        </button>
+                        <button type="button" onclick="copyPlaceholder('{{pecas_processuais}}', this)" 
+                                class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
+                            {{ "{{pecas_processuais}}" }}
+                        </button>
+                        <button type="button" onclick="copyPlaceholder('{{como_decidir}}', this)" 
+                                class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
+                            {{ "{{como_decidir}}" }}
+                        </button>
+                        <button type="button" onclick="copyPlaceholder('{{fundamentos}}', this)" 
+                                class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
+                            {{ "{{fundamentos}}" }}
+                        </button>
+                        <button type="button" onclick="copyPlaceholder('{{vedacoes}}', this)" 
+                                class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
+                            {{ "{{vedacoes}}" }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center">
+                <input type="checkbox" id="is_default" name="is_default" class="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded">
+                <label for="is_default" class="ml-2 text-sm text-gray-700">Definir como prompt padrão</label>
+            </div>
+            <div class="flex justify-end">
+                <button type="submit" 
+                        class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                    <i class="fas fa-plus mr-2"></i>
+                    Adicionar Prompt
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Lista de Prompts -->
+    <div class="bg-white shadow-lg rounded-lg p-6">
+        <h3 class="text-lg font-medium text-gray-900 mb-4">
+            <i class="fas fa-list mr-2 text-green-600"></i>
+            Prompts Configurados
+        </h3>
+        <div class="space-y-4">
+            {% for prompt in prompts %}
+            <div class="border border-gray-200 rounded-lg p-4">
+                <div class="flex items-start justify-between">
+                    <div class="flex-1">
+                        <div class="flex items-center space-x-2 mb-2">
+                            <h4 class="text-lg font-medium text-gray-900">{{ prompt.name }}</h4>
+                            {% if prompt.is_default %}
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                <i class="fas fa-star mr-1"></i>Padrão
+                            </span>
+                            {% endif %}
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                <i class="fas fa-robot mr-1"></i>{{ prompt.ai_model }}
+                            </span>
+                        </div>
+                        <div class="bg-gray-50 border border-gray-200 rounded-md p-3">
+                            <p class="text-sm text-gray-700 whitespace-pre-wrap">{{ prompt.content }}</p>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2">
+                            Criado em: {{ prompt.created_at.strftime('%d/%m/%Y %H:%M') }}
+                        </p>
+                    </div>
+                    <div class="ml-4">
+                        <form method="POST" onsubmit="return confirm('Tem certeza que deseja excluir este prompt?')">
+                            <input type="hidden" name="action" value="delete">
+                            <input type="hidden" name="prompt_id" value="{{ prompt.id }}">
+                            <button type="submit" class="text-red-600 hover:text-red-900">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<script>
+function copyPlaceholder(placeholder, buttonElement) {
+    // Usar o botão passado como parâmetro
+    const button = buttonElement;
+    
+    // Criar um elemento temporário para copiar
+    const tempTextArea = document.createElement('textarea');
+    tempTextArea.value = placeholder;
+    tempTextArea.style.position = 'fixed';
+    tempTextArea.style.left = '-999999px';
+    tempTextArea.style.top = '-999999px';
+    document.body.appendChild(tempTextArea);
+    
+    // Selecionar e copiar
+    tempTextArea.focus();
+    tempTextArea.select();
+    
+    try {
+        const successful = document.execCommand('copy');
+        
+        if (successful) {
+            showCopyFeedback(button);
+        } else {
+            // Fallback para navegadores modernos
+            navigator.clipboard.writeText(placeholder).then(() => {
+                showCopyFeedback(button);
+            }).catch(err => {
+                alert('Erro ao copiar placeholder. Tente novamente.');
+            });
+        }
+    } catch (err) {
+        // Tentar Clipboard API como fallback
+        navigator.clipboard.writeText(placeholder).then(() => {
+            showCopyFeedback(button);
+        }).catch(clipErr => {
+            alert('Erro ao copiar placeholder. Tente novamente.');
+        });
+    } finally {
+        // Limpar o elemento temporário
+        document.body.removeChild(tempTextArea);
+    }
+}
+
+function showCopyFeedback(button) {
+    if (!button) {
+        return;
+    }
+    
+    const originalText = button.innerHTML;
+    button.innerHTML = 'Copiado!';
+    button.classList.remove('bg-blue-100', 'text-blue-800', 'hover:bg-blue-200');
+    button.classList.add('bg-green-100', 'text-green-800');
+    
+    setTimeout(() => {
+        button.innerHTML = originalText;
+        button.classList.remove('bg-green-100', 'text-green-800');
+        button.classList.add('bg-blue-100', 'text-blue-800', 'hover:bg-blue-200');
+    }, 2000);
+}
+</script>
+{% endblock %} 

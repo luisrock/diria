@@ -1,0 +1,771 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - DIRIA{% endblock %}
+
+{% block extra_head %}
+<style>
+    .peca-item {
+        transition: all 0.3s ease;
+    }
+    .peca-item:hover {
+        transform: translateY(-2px);
+    }
+    
+    /* Estilos para o CKEditor */
+    .ck-editor__editable {
+        min-height: 400px;
+        max-height: 600px;
+        overflow-y: auto;
+    }
+    
+    .ck.ck-editor__main > .ck-editor__editable {
+        background-color: #f9fafb;
+        border: 1px solid #d1d5db;
+        border-radius: 0.375rem;
+    }
+    
+    .ck.ck-toolbar {
+        border: 1px solid #d1d5db;
+        border-bottom: none;
+        border-radius: 0.375rem 0.375rem 0 0;
+        background-color: #ffffff;
+    }
+</style>
+<!-- CKEditor CDN -->
+<script src="https://cdn.ckeditor.com/ckeditor5/40.1.0/classic/ckeditor.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="bg-white shadow-lg rounded-lg p-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900">
+                    <i class="fas fa-file-alt mr-3 text-primary-600"></i>
+                    Gerador de Minutas
+                </h1>
+                <p class="mt-1 text-sm text-gray-600">
+                    Preencha os campos abaixo para gerar sua minuta de decisão judicial
+                </p>
+            </div>
+            {% if current_user.first_login %}
+            <div class="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+                <div class="flex">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-exclamation-triangle text-yellow-400"></i>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm text-yellow-800">
+                            <a href="{{ url_for('change_password') }}" class="font-medium underline">
+                                Altere sua senha no primeiro acesso
+                            </a>
+                        </p>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Formulário Principal -->
+    <div class="bg-white shadow-lg rounded-lg p-6">
+        <form id="minutaForm" class="space-y-6">
+            <!-- Número do Processo -->
+            <div>
+                <label for="numero_processo" class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-hashtag mr-2 text-primary-600"></i>
+                    Número do Processo (Opcional)
+                </label>
+                <input type="text" id="numero_processo" name="numero_processo" 
+                       class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                       placeholder="Ex: 0001234-56.2023.4.01.3400"
+                       oninput="limparNumeroProcesso(this)">
+                <p class="mt-1 text-xs text-gray-500">Apenas números serão considerados</p>
+            </div>
+
+            <!-- Peças Processuais -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-folder-open mr-2 text-primary-600"></i>
+                    Peças Processuais <span class="text-red-500">*</span>
+                </label>
+                <div id="pecas-container" class="space-y-4">
+                    <div class="peca-item bg-gray-50 border border-gray-200 rounded-lg p-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Nome da Peça</label>
+                                <input type="text" name="peca_nome[]" required
+                                       class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                                       placeholder="Ex: Petição Inicial">
+                            </div>
+                            <div class="flex items-end">
+                                <button type="button" onclick="removePeca(this)" 
+                                        class="text-red-600 hover:text-red-800">
+                                    <i class="fas fa-trash"></i> Remover
+                                </button>
+                            </div>
+                        </div>
+                        <div class="mt-3">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Conteúdo da Peça</label>
+                            <textarea name="peca_conteudo[]" rows="4" required
+                                      class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                                      placeholder="Cole o conteúdo da peça processual..."></textarea>
+                        </div>
+                    </div>
+                </div>
+                <button type="button" onclick="addPeca()" 
+                        class="mt-3 inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                    <i class="fas fa-plus mr-2"></i>
+                    Adicionar Peça
+                </button>
+            </div>
+
+            <!-- Como Decidir -->
+            <div>
+                <label for="como_decidir" class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-gavel mr-2 text-primary-600"></i>
+                    Como Decidir <span class="text-red-500">*</span>
+                </label>
+                <textarea id="como_decidir" name="como_decidir" rows="4" required
+                          class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                          placeholder="Descreva como você gostaria que a decisão fosse tomada..."></textarea>
+            </div>
+
+            <!-- Fundamentos -->
+            <div>
+                <label for="fundamentos" class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-book mr-2 text-primary-600"></i>
+                    Fundamentos (Opcional)
+                </label>
+                <textarea id="fundamentos" name="fundamentos" rows="4"
+                          class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                          placeholder="Fundamentos legais da decisão..."></textarea>
+            </div>
+
+            <!-- Vedações -->
+            <div>
+                <label for="vedacoes" class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-ban mr-2 text-primary-600"></i>
+                    Vedações (Opcional)
+                </label>
+                <textarea id="vedacoes" name="vedacoes" rows="4"
+                          class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                          placeholder="Limitações ou vedações que devem ser consideradas..."></textarea>
+            </div>
+
+            <!-- Seleção de Prompt -->
+            <div>
+                <label for="prompt_select" class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-magic mr-2 text-primary-600"></i>
+                    Modelo de Prompt
+                </label>
+                <select id="prompt_select" name="prompt_select"
+                        class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm">
+                    {% for prompt in prompts %}
+                    <option value="{{ prompt.id }}" {% if prompt.is_default %}selected{% endif %}>
+                        {{ prompt.name }} ({{ prompt.ai_model }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Botão Enviar -->
+            <div class="flex justify-end">
+                <button type="submit" id="submitBtn"
+                        class="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                    <i class="fas fa-paper-plane mr-2"></i>
+                    Gerar Minuta
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Resultado da Minuta -->
+    <div id="resultado" class="bg-white shadow-lg rounded-lg p-6 hidden">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-medium text-gray-900">
+                <i class="fas fa-file-alt mr-2 text-primary-600"></i>
+                Minuta Gerada
+            </h3>
+            <div class="flex space-x-2">
+                <button onclick="copyToClipboard()" id="copyBtn"
+                        class="inline-flex items-center px-3 py-1 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                    <i class="fas fa-copy mr-1"></i>
+                    Copiar
+                </button>
+                <button onclick="downloadMinuta()" id="downloadBtn"
+                        class="inline-flex items-center px-3 py-1 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                    <i class="fas fa-download mr-1"></i>
+                    Baixar
+                </button>
+                <button onclick="clearEditor()" id="clearBtn"
+                        class="inline-flex items-center px-3 py-1 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                    <i class="fas fa-trash mr-1"></i>
+                    Limpar
+                </button>
+            </div>
+        </div>
+        
+        <!-- Container do CKEditor -->
+        <div id="editor-container">
+            <div id="editor"></div>
+        </div>
+        
+        <!-- Informações de tokens serão inseridas aqui -->
+        <div id="tokens-info"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let pecaCounter = 1;
+let editor = null;
+
+// Inicializar CKEditor quando a página carregar
+document.addEventListener('DOMContentLoaded', function() {
+    initializeEditor();
+    
+    // Verificar se há backup disponível
+    checkForBackup();
+});
+
+function initializeEditor() {
+    ClassicEditor
+        .create(document.querySelector('#editor'), {
+            toolbar: {
+                items: [
+                    'heading',
+                    '|',
+                    'bold',
+                    'italic',
+                    'underline',
+                    'strikethrough',
+                    '|',
+                    'bulletedList',
+                    'numberedList',
+                    '|',
+                    'indent',
+                    'outdent',
+                    '|',
+                    'link',
+                    'blockQuote',
+                    'insertTable',
+                    '|',
+                    'undo',
+                    'redo'
+                ]
+            },
+            language: 'pt-br',
+            placeholder: 'A minuta será exibida aqui após a geração...'
+        })
+        .then(newEditor => {
+            editor = newEditor;
+            console.log('CKEditor inicializado com sucesso');
+            
+            // Adicionar listener para mudanças no editor
+            editor.model.document.on('change:data', () => {
+                // Verificar se o conteúdo foi modificado pelo usuário (não pela IA)
+                const currentContent = editor.getData();
+                if (currentContent && currentContent.trim() !== '') {
+                    // Adicionar indicador visual de que o conteúdo foi editado
+                    const copyBtn = document.getElementById('copyBtn');
+                    if (copyBtn && !copyBtn.classList.contains('bg-yellow-50')) {
+                        copyBtn.classList.add('bg-yellow-50', 'text-yellow-700', 'border-yellow-300');
+                        copyBtn.innerHTML = '<i class="fas fa-edit mr-1"></i>Copiar (Editado)';
+                    }
+                    
+                    // Salvar no localStorage como backup
+                    try {
+                        localStorage.setItem('diria_minuta_backup', currentContent);
+                        localStorage.setItem('diria_minuta_backup_time', new Date().toISOString());
+                    } catch (e) {
+                        console.warn('Não foi possível salvar backup no localStorage:', e);
+                    }
+                }
+            });
+        })
+        .catch(error => {
+            console.error('Erro ao inicializar CKEditor:', error);
+            showNotification('Erro ao carregar o editor. Recarregue a página.', 'error');
+        });
+}
+
+function checkForBackup() {
+    try {
+        const backupContent = localStorage.getItem('diria_minuta_backup');
+        const backupTime = localStorage.getItem('diria_minuta_backup_time');
+        
+        if (backupContent && backupTime) {
+            const backupDate = new Date(backupTime);
+            const now = new Date();
+            const hoursDiff = (now - backupDate) / (1000 * 60 * 60);
+            
+            // Mostrar notificação se o backup for recente (menos de 24 horas)
+            if (hoursDiff < 24) {
+                showNotification(
+                    `Há um backup disponível de ${backupDate.toLocaleString()}. Clique em "Restaurar" para recuperar.`,
+                    'info'
+                );
+                
+                // Adicionar botão de restaurar
+                const restoreBtn = document.createElement('button');
+                restoreBtn.onclick = restoreBackup;
+                restoreBtn.className = 'inline-flex items-center px-3 py-1 border border-blue-300 shadow-sm text-sm font-medium rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 ml-2';
+                restoreBtn.innerHTML = '<i class="fas fa-undo mr-1"></i>Restaurar';
+                
+                const resultadoDiv = document.getElementById('resultado');
+                if (resultadoDiv) {
+                    const headerDiv = resultadoDiv.querySelector('.flex.items-center.justify-between');
+                    if (headerDiv) {
+                        const buttonContainer = headerDiv.querySelector('.flex.space-x-2');
+                        if (buttonContainer) {
+                            buttonContainer.appendChild(restoreBtn);
+                        }
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('Erro ao verificar backup:', e);
+    }
+}
+
+function restoreBackup() {
+    try {
+        const backupContent = localStorage.getItem('diria_minuta_backup');
+        if (backupContent && editor) {
+            editor.setData(backupContent);
+            showNotification('Backup restaurado com sucesso!', 'success');
+            
+            // Mostrar o resultado se estiver oculto
+            document.getElementById('resultado').classList.remove('hidden');
+            
+            // Scroll para o resultado
+            document.getElementById('resultado').scrollIntoView({ behavior: 'smooth' });
+        }
+    } catch (e) {
+        console.error('Erro ao restaurar backup:', e);
+        showNotification('Erro ao restaurar backup!', 'error');
+    }
+}
+
+// Função para limpar número do processo (apenas números)
+function limparNumeroProcesso(input) {
+    // Remove todos os caracteres não numéricos
+    input.value = input.value.replace(/[^\d]/g, '');
+}
+
+function addPeca() {
+    const container = document.getElementById('pecas-container');
+    const newPeca = document.createElement('div');
+    newPeca.className = 'peca-item bg-gray-50 border border-gray-200 rounded-lg p-4';
+    newPeca.innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Nome da Peça</label>
+                <input type="text" name="peca_nome[]" required
+                       class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                       placeholder="Ex: Petição Inicial">
+            </div>
+            <div class="flex items-end">
+                <button type="button" onclick="removePeca(this)" 
+                        class="text-red-600 hover:text-red-800">
+                    <i class="fas fa-trash"></i> Remover
+                </button>
+            </div>
+        </div>
+        <div class="mt-3">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Conteúdo da Peça</label>
+            <textarea name="peca_conteudo[]" rows="4" required
+                      class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                      placeholder="Cole o conteúdo da peça processual..."></textarea>
+        </div>
+    `;
+    container.appendChild(newPeca);
+    pecaCounter++;
+}
+
+function removePeca(button) {
+    const container = document.getElementById('pecas-container');
+    if (container.children.length > 1) {
+        button.closest('.peca-item').remove();
+    }
+}
+
+function copyToClipboard() {
+    if (!editor) {
+        console.error('Editor não inicializado');
+        return;
+    }
+    
+    // Obter o conteúdo HTML do editor
+    const htmlContent = editor.getData();
+    
+    // Função para copiar HTML usando Clipboard API moderna
+    const copyHtmlToClipboard = async () => {
+        try {
+            // Criar um objeto ClipboardItem com HTML
+            const clipboardItem = new ClipboardItem({
+                'text/html': new Blob([htmlContent], { type: 'text/html' }),
+                'text/plain': new Blob([editor.getData().replace(/<[^>]*>/g, '')], { type: 'text/plain' })
+            });
+            
+            await navigator.clipboard.write([clipboardItem]);
+            return true;
+        } catch (err) {
+            console.log('Clipboard API não suportada, tentando método alternativo');
+            return false;
+        }
+    };
+    
+    // Função para copiar usando método alternativo
+    const copyUsingExecCommand = () => {
+        // Criar um elemento temporário
+        const tempElement = document.createElement('div');
+        tempElement.style.position = 'absolute';
+        tempElement.style.left = '-9999px';
+        tempElement.style.top = '-9999px';
+        tempElement.innerHTML = htmlContent;
+        document.body.appendChild(tempElement);
+        
+        // Selecionar o conteúdo
+        const range = document.createRange();
+        range.selectNodeContents(tempElement);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        
+        try {
+            // Tentar copiar
+            const success = document.execCommand('copy');
+            selection.removeAllRanges();
+            document.body.removeChild(tempElement);
+            return success;
+        } catch (err) {
+            selection.removeAllRanges();
+            document.body.removeChild(tempElement);
+            return false;
+        }
+    };
+    
+    // Função para copiar como texto simples
+    const copyAsPlainText = async () => {
+        try {
+            const textContent = editor.getData().replace(/<[^>]*>/g, '');
+            await navigator.clipboard.writeText(textContent);
+            return true;
+        } catch (err) {
+            return false;
+        }
+    };
+    
+    // Executar a cópia com fallbacks
+    copyHtmlToClipboard().then(success => {
+        if (!success) {
+            return copyUsingExecCommand();
+        }
+        return success;
+    }).then(success => {
+        if (!success) {
+            return copyAsPlainText();
+        }
+        return success;
+    }).then(success => {
+        // Mostrar feedback visual
+        const button = document.getElementById('copyBtn');
+        const originalText = button.innerHTML;
+        
+        if (success) {
+            button.innerHTML = '<i class="fas fa-check mr-1"></i>Copiado!';
+            button.classList.remove('bg-yellow-50', 'text-yellow-700', 'border-yellow-300');
+            button.classList.add('bg-green-50', 'text-green-700', 'border-green-300');
+            showNotification('Conteúdo copiado com sucesso!', 'success');
+        } else {
+            button.innerHTML = '<i class="fas fa-times mr-1"></i>Erro!';
+            button.classList.add('bg-red-50', 'text-red-700', 'border-red-300');
+            showNotification('Erro ao copiar conteúdo!', 'error');
+        }
+        
+        setTimeout(() => {
+            button.innerHTML = '<i class="fas fa-copy mr-1"></i>Copiar';
+            button.classList.remove('bg-green-50', 'text-green-700', 'border-green-300', 'bg-red-50', 'text-red-700', 'border-red-300');
+        }, 2000);
+    });
+}
+
+function downloadMinuta() {
+    if (!editor) {
+        console.error('Editor não inicializado');
+        showNotification('Editor não inicializado!', 'error');
+        return;
+    }
+    
+    const htmlContent = editor.getData();
+    
+    if (!htmlContent || htmlContent.trim() === '') {
+        showNotification('Nenhum conteúdo para baixar!', 'error');
+        return;
+    }
+    
+    try {
+        // Criar blob com o conteúdo HTML
+        const blob = new Blob([htmlContent], { type: 'text/html' });
+        const url = window.URL.createObjectURL(blob);
+        
+        // Criar link de download
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `minuta_${new Date().toISOString().slice(0, 10)}.html`;
+        document.body.appendChild(a);
+        a.click();
+        
+        // Limpar
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        showNotification('Minuta baixada com sucesso!', 'success');
+    } catch (error) {
+        console.error('Erro ao baixar minuta:', error);
+        showNotification('Erro ao baixar minuta!', 'error');
+    }
+}
+
+function clearEditor() {
+    if (editor) {
+        if (confirm('Tem certeza que deseja limpar o editor?')) {
+            editor.setData('');
+            // Mostrar notificação
+            showNotification('Editor limpo com sucesso!', 'success');
+        }
+    }
+}
+
+function showNotification(message, type = 'info') {
+    // Criar elemento de notificação
+    const notification = document.createElement('div');
+    notification.className = `fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm transform transition-all duration-300 translate-x-full`;
+    
+    // Definir cores baseadas no tipo
+    if (type === 'success') {
+        notification.classList.add('bg-green-100', 'border', 'border-green-400', 'text-green-700');
+    } else if (type === 'error') {
+        notification.classList.add('bg-red-100', 'border', 'border-red-400', 'text-red-700');
+    } else {
+        notification.classList.add('bg-blue-100', 'border', 'border-blue-400', 'text-blue-700');
+    }
+    
+    notification.innerHTML = `
+        <div class="flex items-center">
+            <div class="flex-shrink-0">
+                ${type === 'success' ? '<i class="fas fa-check-circle"></i>' : 
+                  type === 'error' ? '<i class="fas fa-exclamation-circle"></i>' : 
+                  '<i class="fas fa-info-circle"></i>'}
+            </div>
+            <div class="ml-3">
+                <p class="text-sm font-medium">${message}</p>
+            </div>
+            <div class="ml-auto pl-3">
+                <button onclick="this.parentElement.parentElement.remove()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Animar entrada
+    setTimeout(() => {
+        notification.classList.remove('translate-x-full');
+    }, 100);
+    
+    // Auto-remover após 3 segundos
+    setTimeout(() => {
+        if (notification.parentElement) {
+            notification.classList.add('translate-x-full');
+            setTimeout(() => {
+                if (notification.parentElement) {
+                    notification.remove();
+                }
+            }, 300);
+        }
+    }, 3000);
+}
+
+document.getElementById('minutaForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const submitBtn = document.getElementById('submitBtn');
+    const originalText = submitBtn.innerHTML;
+    
+    // Desabilitar botão e mostrar loading
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Gerando...';
+    
+    try {
+        // Coletar dados do formulário
+        const formData = {
+            numero_processo: document.getElementById('numero_processo').value,
+            pecas_processuais: [],
+            como_decidir: document.getElementById('como_decidir').value,
+            fundamentos: document.getElementById('fundamentos').value,
+            vedacoes: document.getElementById('vedacoes').value,
+            prompt_id: document.getElementById('prompt_select').value
+        };
+        
+        // Coletar peças processuais
+        const pecaNomes = document.getElementsByName('peca_nome[]');
+        const pecaConteudos = document.getElementsByName('peca_conteudo[]');
+        
+        for (let i = 0; i < pecaNomes.length; i++) {
+            formData.pecas_processuais.push({
+                nome: pecaNomes[i].value,
+                conteudo: pecaConteudos[i].value
+            });
+        }
+        
+        // Enviar para o servidor
+        const response = await fetch('/generate_minuta', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(formData)
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            // Converter o texto da minuta para HTML formatado
+            const formattedMinuta = formatMinutaToHtml(result.minuta);
+            
+            // Definir o conteúdo no editor
+            if (editor) {
+                editor.setData(formattedMinuta);
+                // Resetar indicador de edição
+                resetEditIndicator();
+            }
+            
+            // Mostrar resultado
+            document.getElementById('resultado').classList.remove('hidden');
+            
+            // Mostrar informações de tokens se disponíveis
+            if (result.tokens_info) {
+                const tokensInfo = result.tokens_info;
+                const tokensHtml = `
+                    <div class="mt-4 p-3 bg-gray-50 rounded-lg">
+                        <h4 class="text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-chart-bar mr-2"></i>Informações de Tokens
+                        </h4>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                            <div class="text-center">
+                                <div class="font-medium text-purple-600">${tokensInfo.total_tokens}</div>
+                                <div class="text-gray-500">Total</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="font-medium text-blue-600">${tokensInfo.request_tokens}</div>
+                                <div class="text-gray-500">Envio</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="font-medium text-green-600">${tokensInfo.response_tokens}</div>
+                                <div class="text-gray-500">Resposta</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="font-medium text-gray-600">${tokensInfo.model_used}</div>
+                                <div class="text-gray-500">Modelo</div>
+                            </div>
+                        </div>
+                        ${tokensInfo.success ? 
+                            '<div class="mt-2 text-center"><span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800"><i class="fas fa-check mr-1"></i>Sucesso</span></div>' :
+                            '<div class="mt-2 text-center"><span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800"><i class="fas fa-times mr-1"></i>Erro</span></div>'
+                        }
+                    </div>
+                `;
+                document.getElementById('tokens-info').innerHTML = tokensHtml;
+            }
+            
+            // Scroll para o resultado
+            document.getElementById('resultado').scrollIntoView({ behavior: 'smooth' });
+            
+            showNotification('Minuta gerada com sucesso!', 'success');
+        } else {
+            alert('Erro: ' + result.error);
+            showNotification('Erro ao gerar minuta: ' + result.error, 'error');
+        }
+        
+    } catch (error) {
+        console.error('Erro:', error);
+        alert('Erro ao gerar minuta. Tente novamente.');
+    } finally {
+        // Restaurar botão
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalText;
+    }
+});
+
+function formatMinutaToHtml(text) {
+    if (!text || text.trim() === '') {
+        return '<p>Nenhum conteúdo disponível.</p>';
+    }
+    
+    // Converter quebras de linha em parágrafos
+    let html = text
+        .replace(/\n\n+/g, '</p><p>')  // Múltiplas quebras de linha viram parágrafos
+        .replace(/\n/g, '<br>');       // Quebras simples viram <br>
+    
+    // Adicionar tags de parágrafo no início e fim
+    html = '<p>' + html + '</p>';
+    
+    // Formatar títulos (linhas que terminam com ":")
+    html = html.replace(/<p>([^:]+:)<\/p>/g, '<h2>$1</h2>');
+    
+    // Formatar palavras em negrito (entre **)
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    
+    // Formatar palavras em itálico (entre *)
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    
+    // Formatar sublinhado (entre __)
+    html = html.replace(/__([^_]+)__/g, '<u>$1</u>');
+    
+    // Formatar tachado (entre ~~)
+    html = html.replace(/~~([^~]+)~~/g, '<s>$1</s>');
+    
+    // Formatar listas numeradas
+    html = html.replace(/<p>(\d+\.\s+[^<]+)<\/p>/g, '<ol><li>$1</li></ol>');
+    
+    // Formatar listas com marcadores
+    html = html.replace(/<p>[-*]\s+([^<]+)<\/p>/g, '<ul><li>$1</li></ul>');
+    
+    // Formatar citações (linhas que começam com >)
+    html = html.replace(/<p>&gt;\s+([^<]+)<\/p>/g, '<blockquote><p>$1</p></blockquote>');
+    
+    // Formatar código inline (entre `)
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    
+    // Limpar parágrafos vazios
+    html = html.replace(/<p><\/p>/g, '');
+    
+    // Limpar tags vazias
+    html = html.replace(/<(h2|ol|ul|blockquote)><\/\1>/g, '');
+    
+    // Adicionar espaçamento entre elementos
+    html = html.replace(/<\/h2>/g, '</h2><br>');
+    html = html.replace(/<\/ol>/g, '</ol><br>');
+    html = html.replace(/<\/ul>/g, '</ul><br>');
+    html = html.replace(/<\/blockquote>/g, '</blockquote><br>');
+    
+    return html;
+}
+
+function resetEditIndicator() {
+    const copyBtn = document.getElementById('copyBtn');
+    if (copyBtn) {
+        copyBtn.classList.remove('bg-yellow-50', 'text-yellow-700', 'border-yellow-300');
+        copyBtn.innerHTML = '<i class="fas fa-copy mr-1"></i>Copiar';
+    }
+}
+</script>
+{% endblock %} 

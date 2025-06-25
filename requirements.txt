@@ -1,0 +1,13 @@
+Flask==2.3.3
+Flask-Login==0.6.3
+Flask-WTF==1.1.1
+WTForms==3.0.1
+python-dotenv==1.0.0
+Flask-SQLAlchemy==3.0.5
+Werkzeug==2.3.7
+email-validator==2.0.0
+openai>=1.91.0
+anthropic>=0.55.0
+google-generativeai>=0.8.5
+tiktoken>=0.6.0
+requests>=2.31.0 
