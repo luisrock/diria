@@ -178,12 +178,22 @@ class AIManager:
     
     def _call_openai(self, prompt: str, model: str, max_tokens: int) -> str:
         """Chama API da OpenAI"""
-        response = self.openai_client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=max_tokens,
-            temperature=0.7
-        )
+        # Verificar se é um modelo O3/O4 que usa max_completion_tokens
+        if model.startswith('o3-') or model.startswith('o4-'):
+            response = self.openai_client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                max_completion_tokens=max_tokens
+                # Modelos O3/O4 não suportam temperature personalizada
+            )
+        else:
+            # Modelos GPT tradicionais usam max_tokens e temperature
+            response = self.openai_client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=0.3
+            )
         return response.choices[0].message.content
     
     def _call_anthropic(self, prompt: str, model: str, max_tokens: int) -> str:

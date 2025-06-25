@@ -73,9 +73,37 @@ class UsageLog(db.Model):
     
     user = db.relationship('User', backref=db.backref('logs', lazy=True))
 
+class AppConfig(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(100), unique=True, nullable=False)
+    value = db.Column(db.Text, nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
+
+def get_app_config(key, default=None):
+    """Obtém uma configuração da aplicação"""
+    config = AppConfig.query.filter_by(key=key).first()
+    return config.value if config else default
+
+def set_app_config(key, value, description=None):
+    """Define uma configuração da aplicação"""
+    config = AppConfig.query.filter_by(key=key).first()
+    if config:
+        config.value = value
+        if description:
+            config.description = description
+    else:
+        config = AppConfig(key=key, value=value, description=description)
+        db.session.add(config)
+    db.session.commit()
+
+def get_default_ai_model():
+    """Obtém o modelo de IA padrão da aplicação"""
+    return get_app_config('default_ai_model', 'gemini-2.5-pro')
 
 # Rotas
 @app.route('/')
@@ -170,6 +198,11 @@ def generate_minuta():
         if not prompt:
             return jsonify({'error': 'Nenhum prompt encontrado.'}), 400
         
+        # Usar o modelo de IA selecionado pelo usuário
+        ai_model_id = data.get('ai_model_id')
+        if not ai_model_id:
+            return jsonify({'error': 'Modelo de IA não selecionado.'}), 400
+        
         # Preparar dados para o prompt
         pecas_texto = ""
         for peca in data.get('pecas_processuais', []):
@@ -183,10 +216,10 @@ def generate_minuta():
         prompt_content = prompt_content.replace('{{fundamentos}}', data.get('fundamentos', ''))
         prompt_content = prompt_content.replace('{{vedacoes}}', data.get('vedacoes', ''))
         
-        # Gerar resposta usando IA
+        # Gerar resposta usando IA com o modelo selecionado
         minuta, tokens_info = ai_manager.generate_response(
             prompt=prompt_content,
-            model=prompt.ai_model,
+            model=ai_model_id,
             max_tokens=2000
         )
         
@@ -220,6 +253,104 @@ def generate_minuta():
         log = UsageLog(
             user_id=current_user.id,
             action='generate_minuta',
+            tokens_used=0,
+            success=False,
+            error_message=str(e)
+        )
+        db.session.add(log)
+        db.session.commit()
+        
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/adjust_minuta', methods=['POST'])
+@login_required
+def adjust_minuta():
+    try:
+        data = request.get_json()
+        
+        # Validação dos campos obrigatórios
+        if not data.get('adjustment_prompt'):
+            return jsonify({'error': 'O prompt de ajuste é obrigatório.'}), 400
+        
+        if not data.get('current_content'):
+            return jsonify({'error': 'O conteúdo atual é obrigatório.'}), 400
+        
+        # Obter o modelo de IA selecionado
+        ai_model_id = data.get('model_id')
+        if not ai_model_id:
+            return jsonify({'error': 'Modelo de IA não selecionado.'}), 400
+        
+        # Obter o prompt original (usar o primeiro prompt disponível ou default)
+        prompt = Prompt.query.filter_by(is_default=True).first()
+        if not prompt:
+            prompt = Prompt.query.first()
+        
+        if not prompt:
+            return jsonify({'error': 'Nenhum prompt encontrado.'}), 400
+        
+        # Preparar dados para o prompt de ajuste
+        pecas_texto = ""
+        for peca in data.get('pecas_processuais', []):
+            pecas_texto += f"\n- {peca.get('nome', '')}: {peca.get('conteudo', '')}\n"
+        
+        # Criar prompt de ajuste com histórico
+        adjustment_prompt = f"""
+Com base na minuta atual, no histórico de conversa e na solicitação de ajuste, faça as modificações necessárias.
+
+HISTÓRICO DA CONVERSA:
+- Prompt original: {prompt.content}
+- Dados do processo: {data.get('numero_processo', 'Não informado')}
+- Peças processuais: {pecas_texto}
+- Como decidir: {data.get('como_decidir', '')}
+- Fundamentos: {data.get('fundamentos', '')}
+- Vedações: {data.get('vedacoes', '')}
+
+MINUTA ATUAL:
+{data.get('current_content', '')}
+
+SOLICITAÇÃO DE AJUSTE:
+{data.get('adjustment_prompt', '')}
+
+Por favor, gere uma nova versão da minuta aplicando o ajuste solicitado. Mantenha a estrutura e formatação adequadas para um documento judicial. Considere o contexto completo da conversa para fazer os ajustes apropriados.
+"""
+        
+        # Gerar resposta usando IA com o modelo selecionado
+        minuta, tokens_info = ai_manager.generate_response(
+            prompt=adjustment_prompt,
+            model=ai_model_id,
+            max_tokens=2000
+        )
+        
+        # Log de uso detalhado
+        log = UsageLog(
+            user_id=current_user.id,
+            action='adjust_minuta',
+            tokens_used=tokens_info['total_tokens'],
+            request_tokens=tokens_info['request_tokens'],
+            response_tokens=tokens_info['response_tokens'],
+            model_used=tokens_info['model_used'],
+            success=tokens_info['success'],
+            error_message=tokens_info.get('error')
+        )
+        db.session.add(log)
+        db.session.commit()
+        
+        return jsonify({
+            'minuta': minuta,
+            'tokens_info': {
+                'request_tokens': tokens_info['request_tokens'],
+                'response_tokens': tokens_info['response_tokens'],
+                'total_tokens': tokens_info['total_tokens'],
+                'model_used': tokens_info['model_used'],
+                'success': tokens_info['success']
+            }
+        })
+        
+    except Exception as e:
+        # Log de erro
+        log = UsageLog(
+            user_id=current_user.id,
+            action='adjust_minuta',
             tokens_used=0,
             success=False,
             error_message=str(e)
@@ -449,6 +580,69 @@ def admin_stats():
     
     return render_template('admin_stats.html', stats=stats)
 
+@app.route('/api/default_model')
+def get_default_model():
+    """Retorna o modelo de IA padrão da aplicação"""
+    return jsonify({
+        'default_model': get_default_ai_model()
+    })
+
+@app.route('/api/available_models')
+def get_available_models():
+    """Retorna lista de modelos disponíveis"""
+    from models_config import get_all_models, get_model_info
+    
+    models = []
+    for model_id in get_all_models():
+        info = get_model_info(model_id)
+        if info:
+            models.append({
+                'id': model_id,
+                'name': f"{info['display_name']} ({info['provider_name']})",
+                'provider': info['provider_name'],
+                'description': info['description']
+            })
+    
+    return jsonify({'models': models})
+
+@app.route('/admin/config', methods=['GET', 'POST'])
+@login_required
+def admin_config():
+    if not current_user.is_admin:
+        flash('Acesso negado.', 'error')
+        return redirect(url_for('dashboard'))
+    
+    if request.method == 'POST':
+        action = request.form.get('action')
+        
+        if action == 'update_default_model':
+            new_default_model = request.form.get('default_ai_model')
+            if new_default_model:
+                set_app_config('default_ai_model', new_default_model, 'Modelo de IA padrão da aplicação')
+                flash('Modelo padrão atualizado com sucesso.', 'success')
+            else:
+                flash('Modelo padrão é obrigatório.', 'error')
+    
+    # Obter configurações atuais
+    current_default_model = get_default_ai_model()
+    
+    # Obter modelos disponíveis
+    from models_config import get_all_models, get_model_info
+    available_models = []
+    for model_id in get_all_models():
+        info = get_model_info(model_id)
+        if info:
+            available_models.append({
+                'id': model_id,
+                'name': f"{info['display_name']} ({info['provider_name']})",
+                'provider': info['provider_name'],
+                'description': info['description']
+            })
+    
+    return render_template('admin_config.html', 
+                         current_default_model=current_default_model,
+                         available_models=available_models)
+
 # Inicialização do banco de dados
 def init_db():
     with app.app_context():
@@ -514,6 +708,14 @@ def init_db():
                 db.session.add(prompt)
             
             db.session.commit()
+            
+            # Criar configurações padrão da aplicação
+            set_app_config('default_ai_model', 'gemini-2.5-pro', 'Modelo de IA padrão da aplicação')
+            
+            print("✅ Banco de dados inicializado com sucesso!")
+            print("✅ Usuários padrão criados")
+            print("✅ Prompts padrão criados")
+            print("✅ Configurações padrão criadas")
 
 if __name__ == '__main__':
     init_db()
