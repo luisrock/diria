@@ -13,7 +13,7 @@
                 </div>
                 <div class="ml-4">
                     <h1 class="text-2xl font-bold text-gray-900">Instruções dos Modelos</h1>
-                    <p class="text-sm text-gray-600">Configure personas, vedações e instruções específicas por modelo de IA</p>
+                    <p class="text-sm text-gray-600">Configure instruções específicas para os modelos de IA</p>
                 </div>
             </div>
             <a href="{{ url_for('admin_panel') }}" 
@@ -24,120 +24,71 @@
         </div>
     </div>
 
-    <!-- Templates Pré-definidos -->
+    <!-- Instruções Gerais -->
     <div class="bg-white shadow-lg rounded-lg p-6">
         <h3 class="text-lg font-medium text-gray-900 mb-4">
-            <i class="fas fa-layer-group mr-2 text-purple-600"></i>
-            Templates Pré-definidos
-        </h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div class="border border-gray-200 rounded-lg p-4 hover:border-purple-300 cursor-pointer" 
-                 onclick="loadTemplate('juiz_experiente')">
-                <h4 class="font-medium text-gray-900 mb-2">Juiz Experiente</h4>
-                <p class="text-sm text-gray-600">Persona de juiz com mais de 20 anos de experiência em direito civil</p>
-            </div>
-            <div class="border border-gray-200 rounded-lg p-4 hover:border-purple-300 cursor-pointer" 
-                 onclick="loadTemplate('juiz_rigoroso')">
-                <h4 class="font-medium text-gray-900 mb-2">Juiz Rigoroso</h4>
-                <p class="text-sm text-gray-600">Persona de juiz que prioriza rigor técnico e formalidade</p>
-            </div>
-            <div class="border border-gray-200 rounded-lg p-4 hover:border-purple-300 cursor-pointer" 
-                 onclick="loadTemplate('juiz_equitativo')">
-                <h4 class="font-medium text-gray-900 mb-2">Juiz Equitativo</h4>
-                <p class="text-sm text-gray-600">Persona de juiz que busca equilíbrio entre direito e equidade</p>
-            </div>
-        </div>
-    </div>
-
-    <!-- Formulário de Adição/Edição -->
-    <div class="bg-white shadow-lg rounded-lg p-6">
-        <h3 class="text-lg font-medium text-gray-900 mb-4">
-            <i class="fas fa-plus mr-2 text-purple-600"></i>
-            Configurar Instruções do Modelo
+            <i class="fas fa-cog mr-2 text-purple-600"></i>
+            Instruções Gerais
         </h3>
         <form method="POST" class="space-y-4">
-            <input type="hidden" name="action" value="create">
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label for="model_id" class="block text-sm font-medium text-gray-700 mb-2">Modelo de IA</label>
-                    <select id="model_id" name="model_id" required
-                            class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm">
-                        <option value="">Selecione um modelo...</option>
-                        {% for model in available_models %}
-                        <option value="{{ model.id }}">
-                            {{ model.name }}
-                        </option>
-                        {% endfor %}
-                    </select>
-                    <p class="mt-1 text-sm text-gray-500">
-                        Escolha o modelo para o qual deseja configurar instruções específicas.
-                    </p>
-                </div>
-                
-                <div>
-                    <label for="copy_from_model" class="block text-sm font-medium text-gray-700 mb-2">Copiar de outro modelo</label>
-                    <select id="copy_from_model" name="copy_from_model"
-                            class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
-                            onchange="copyInstructions()">
-                        <option value="">Selecione para copiar...</option>
-                        {% for instruction in instructions_list %}
-                        <option value="{{ instruction.model_id }}">
-                            {{ instruction.model_id }}
-                        </option>
-                        {% endfor %}
-                    </select>
-                    <p class="mt-1 text-sm text-gray-500">
-                        Copie instruções de um modelo já configurado.
-                    </p>
-                </div>
-            </div>
+            <input type="hidden" name="action" value="save_general">
             
             <div>
-                <label for="persona" class="block text-sm font-medium text-gray-700 mb-2">
-                    <i class="fas fa-user-tie mr-1"></i>Persona
+                <label for="general_instructions" class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-edit mr-1"></i>Instruções
                 </label>
-                <textarea id="persona" name="persona" rows="3"
+                <textarea id="general_instructions" name="general_instructions" rows="6"
                           class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
-                          placeholder="Ex: Você é um juiz experiente especializado em direito civil, com mais de 20 anos de experiência..."></textarea>
+                          placeholder="Ex: Você é um juiz experiente especializado em direito civil. Suas decisões devem ser baseadas apenas nos fatos apresentados e na legislação aplicável...">{{ general_instructions }}</textarea>
                 <p class="mt-1 text-sm text-gray-500">
-                    Defina a persona que o modelo deve assumir ao gerar respostas.
+                    Estas instruções serão aplicadas a todos os modelos. Defina a persona, restrições e diretrizes gerais.
                 </p>
             </div>
             
-            <div>
-                <label for="restrictions" class="block text-sm font-medium text-gray-700 mb-2">
-                    <i class="fas fa-ban mr-1"></i>Restrições/Vedações
-                </label>
-                <textarea id="restrictions" name="restrictions" rows="3"
-                          class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
-                          placeholder="Ex: Não mencione nomes de pessoas, não faça suposições sobre fatos não apresentados..."></textarea>
-                <p class="mt-1 text-sm text-gray-500">
-                    Especifique limitações e vedações que o modelo deve seguir.
-                </p>
+            <div class="flex justify-end">
+                <button type="submit" 
+                        class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500">
+                    <i class="fas fa-save mr-2"></i>
+                    Salvar Instruções Gerais
+                </button>
             </div>
+        </form>
+    </div>
+
+    <!-- Personalização por Modelo -->
+    <div class="bg-white shadow-lg rounded-lg p-6">
+        <h3 class="text-lg font-medium text-gray-900 mb-4">
+            <i class="fas fa-user-cog mr-2 text-purple-600"></i>
+            Personalizar por Modelo
+        </h3>
+        
+        <div class="mb-4">
+            <label for="model_selector" class="block text-sm font-medium text-gray-700 mb-2">Selecionar Modelo</label>
+            <select id="model_selector" 
+                    class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                    onchange="loadModelInstructions()">
+                <option value="">Escolha um modelo para personalizar...</option>
+                {% for model in available_models %}
+                <option value="{{ model.id }}">
+                    {{ model.name }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <form method="POST" id="model_form" class="space-y-4" style="display: none;">
+            <input type="hidden" name="action" value="save_model">
+            <input type="hidden" name="model_id" id="model_id_input">
             
             <div>
-                <label for="introduction" class="block text-sm font-medium text-gray-700 mb-2">
-                    <i class="fas fa-play mr-1"></i>Introdução
+                <label for="model_instructions" class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-edit mr-1"></i>Instruções do Modelo
                 </label>
-                <textarea id="introduction" name="introduction" rows="3"
+                <textarea id="model_instructions" name="model_instructions" rows="8"
                           class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
-                          placeholder="Ex: Com base nos dados fornecidos e na legislação aplicável..."></textarea>
+                          placeholder="As instruções gerais aparecerão aqui. Você pode editá-las para personalizar este modelo específico..."></textarea>
                 <p class="mt-1 text-sm text-gray-500">
-                    Texto introdutório que será adicionado no início de cada prompt.
-                </p>
-            </div>
-            
-            <div>
-                <label for="conclusion" class="block text-sm font-medium text-gray-700 mb-2">
-                    <i class="fas fa-flag-checkered mr-1"></i>Conclusão
-                </label>
-                <textarea id="conclusion" name="conclusion" rows="3"
-                          class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
-                          placeholder="Ex: Assinado eletronicamente, [Nome do Juiz], Data: [Data atual]"></textarea>
-                <p class="mt-1 text-sm text-gray-500">
-                    Texto de conclusão que será adicionado no final de cada resposta.
+                    Personalize as instruções para este modelo específico. As instruções gerais são carregadas como base.
                 </p>
             </div>
             
@@ -148,26 +99,26 @@
             </div>
             
             <div class="flex justify-between">
-                <button type="button" onclick="applyToAllModels()"
+                <button type="button" onclick="resetToGeneral()"
                         class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                    <i class="fas fa-copy mr-2"></i>
-                    Aplicar a Todos os Modelos
+                    <i class="fas fa-undo mr-2"></i>
+                    Restaurar Instruções Gerais
                 </button>
                 
                 <button type="submit" 
                         class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500">
                     <i class="fas fa-save mr-2"></i>
-                    Salvar Instruções
+                    Salvar Instruções do Modelo
                 </button>
             </div>
         </form>
     </div>
 
-    <!-- Lista de Instruções Configuradas -->
+    <!-- Lista de Modelos Personalizados -->
     <div class="bg-white shadow-lg rounded-lg p-6">
         <h3 class="text-lg font-medium text-gray-900 mb-4">
             <i class="fas fa-list mr-2 text-purple-600"></i>
-            Instruções Configuradas
+            Modelos Personalizados
         </h3>
         
         {% if instructions_list %}
@@ -189,42 +140,8 @@
                             {% endif %}
                         </div>
                         
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {% if instruction.persona %}
-                            <div>
-                                <h5 class="text-sm font-medium text-gray-700 mb-1">
-                                    <i class="fas fa-user-tie mr-1"></i>Persona
-                                </h5>
-                                <p class="text-sm text-gray-600 bg-gray-50 p-2 rounded">{{ instruction.persona }}</p>
-                            </div>
-                            {% endif %}
-                            
-                            {% if instruction.restrictions %}
-                            <div>
-                                <h5 class="text-sm font-medium text-gray-700 mb-1">
-                                    <i class="fas fa-ban mr-1"></i>Restrições
-                                </h5>
-                                <p class="text-sm text-gray-600 bg-gray-50 p-2 rounded">{{ instruction.restrictions }}</p>
-                            </div>
-                            {% endif %}
-                            
-                            {% if instruction.introduction %}
-                            <div>
-                                <h5 class="text-sm font-medium text-gray-700 mb-1">
-                                    <i class="fas fa-play mr-1"></i>Introdução
-                                </h5>
-                                <p class="text-sm text-gray-600 bg-gray-50 p-2 rounded">{{ instruction.introduction }}</p>
-                            </div>
-                            {% endif %}
-                            
-                            {% if instruction.conclusion %}
-                            <div>
-                                <h5 class="text-sm font-medium text-gray-700 mb-1">
-                                    <i class="fas fa-flag-checkered mr-1"></i>Conclusão
-                                </h5>
-                                <p class="text-sm text-gray-600 bg-gray-50 p-2 rounded">{{ instruction.conclusion }}</p>
-                            </div>
-                            {% endif %}
+                        <div class="bg-gray-50 p-3 rounded">
+                            <p class="text-sm text-gray-700 whitespace-pre-wrap">{{ instruction.instructions }}</p>
                         </div>
                         
                         <p class="text-xs text-gray-500 mt-3">
@@ -236,13 +153,7 @@
                     </div>
                     
                     <div class="ml-4 flex space-x-2">
-                        <button onclick="editInstruction(this)" 
-                                data-model-id="{{ instruction.model_id }}"
-                                data-persona="{{ instruction.persona|e }}"
-                                data-restrictions="{{ instruction.restrictions|e }}"
-                                data-introduction="{{ instruction.introduction|e }}"
-                                data-conclusion="{{ instruction.conclusion|e }}"
-                                data-is-active="{{ 'true' if instruction.is_active else 'false' }}"
+                        <button onclick="editModelInstruction('{{ instruction.model_id }}', `{{ instruction.instructions|e }}`, {{ 'true' if instruction.is_active else 'false' }})" 
                                 class="text-blue-600 hover:text-blue-900" title="Editar">
                             <i class="fas fa-edit"></i>
                         </button>
@@ -261,177 +172,76 @@
         {% else %}
         <div class="text-center py-8">
             <i class="fas fa-robot text-4xl text-gray-300 mb-4"></i>
-            <p class="text-gray-500">Nenhuma instrução configurada ainda.</p>
-            <p class="text-sm text-gray-400">Configure instruções para seus modelos de IA acima.</p>
+            <p class="text-gray-500">Nenhum modelo personalizado ainda.</p>
+            <p class="text-sm text-gray-400">Selecione um modelo acima para criar instruções personalizadas.</p>
         </div>
         {% endif %}
     </div>
 </div>
 
-<!-- Modal para Aplicar a Todos os Modelos -->
-<div id="applyToAllModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden z-50">
-    <div class="flex items-center justify-center min-h-screen p-4">
-        <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div class="p-6">
-                <h3 class="text-lg font-medium text-gray-900 mb-4">
-                    <i class="fas fa-exclamation-triangle text-yellow-500 mr-2"></i>
-                    Aplicar a Todos os Modelos
-                </h3>
-                <p class="text-sm text-gray-600 mb-4">
-                    Esta ação irá criar ou atualizar instruções para todos os modelos disponíveis com as configurações atuais do formulário.
-                </p>
-                <div class="flex justify-end space-x-3">
-                    <button onclick="closeApplyToAllModal()" 
-                            class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">
-                        Cancelar
-                    </button>
-                    <button onclick="confirmApplyToAll()" 
-                            class="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-md hover:bg-purple-700">
-                        Confirmar
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
 <script>
-// Templates pré-definidos
-const templates = {
-    'juiz_experiente': {
-        persona: 'Você é um juiz experiente especializado em direito civil, com mais de 20 anos de experiência no Poder Judiciário. Possui vasto conhecimento em procedimentos judiciais, interpretação de leis e aplicação do direito. Sua abordagem é equilibrada, considerando tanto aspectos técnicos quanto humanísticos.',
-        restrictions: 'Não mencione nomes de pessoas físicas ou jurídicas específicas. Não faça suposições sobre fatos não apresentados. Base suas decisões apenas nos dados fornecidos e na legislação aplicável. Mantenha linguagem formal e técnica apropriada para documentos judiciais.',
-        introduction: 'Com base nos dados fornecidos e na legislação aplicável, considerando os princípios do devido processo legal e da ampla defesa,',
-        conclusion: 'Assinado eletronicamente, [Nome do Juiz], Juiz de Direito, Data: [Data atual]'
-    },
-    'juiz_rigoroso': {
-        persona: 'Você é um juiz rigoroso que prioriza o rigor técnico, a formalidade processual e a estrita observância da lei. Sua abordagem é meticulosa e baseada em precedentes jurisprudenciais estabelecidos.',
-        restrictions: 'Não mencione nomes de pessoas. Não faça interpretações extensivas da lei. Mantenha-se estritamente aos fatos apresentados e à letra da lei. Use linguagem técnica e formal.',
-        introduction: 'Considerando estritamente os fatos apresentados e a legislação em vigor,',
-        conclusion: 'Assinado eletronicamente, [Nome do Juiz], Juiz de Direito, Data: [Data atual]'
-    },
-    'juiz_equitativo': {
-        persona: 'Você é um juiz que busca o equilíbrio entre a aplicação rigorosa do direito e a equidade. Considera aspectos humanísticos e sociais em suas decisões, sempre dentro dos limites legais.',
-        restrictions: 'Não mencione nomes de pessoas. Não faça suposições sobre fatos não apresentados. Considere aspectos de equidade sem desrespeitar a lei. Mantenha linguagem acessível mas técnica.',
-        introduction: 'Considerando os fatos apresentados, a legislação aplicável e os princípios de equidade,',
-        conclusion: 'Assinado eletronicamente, [Nome do Juiz], Juiz de Direito, Data: [Data atual]'
-    }
-};
+let generalInstructions = `{{ general_instructions|e }}`;
 
-function loadTemplate(templateName) {
-    const template = templates[templateName];
-    if (template) {
-        document.getElementById('persona').value = template.persona;
-        document.getElementById('restrictions').value = template.restrictions;
-        document.getElementById('introduction').value = template.introduction;
-        document.getElementById('conclusion').value = template.conclusion;
-        
-        // Mostrar notificação
-        showNotification('Template carregado com sucesso!', 'success');
-    }
-}
-
-function copyInstructions() {
-    const copyFromSelect = document.getElementById('copy_from_model');
-    const selectedModel = copyFromSelect.value;
+function loadModelInstructions() {
+    const modelSelector = document.getElementById('model_selector');
+    const selectedModel = modelSelector.value;
+    const modelForm = document.getElementById('model_form');
+    const modelIdInput = document.getElementById('model_id_input');
+    const modelInstructions = document.getElementById('model_instructions');
     
-    if (!selectedModel) return;
-    
-    // Encontrar as instruções do modelo selecionado
-    const instructionElement = document.querySelector(`[data-model-id="${selectedModel}"]`);
-    if (instructionElement) {
-        const persona = instructionElement.getAttribute('data-persona');
-        const restrictions = instructionElement.getAttribute('data-restrictions');
-        const introduction = instructionElement.getAttribute('data-introduction');
-        const conclusion = instructionElement.getAttribute('data-conclusion');
-        
-        document.getElementById('persona').value = persona || '';
-        document.getElementById('restrictions').value = restrictions || '';
-        document.getElementById('introduction').value = introduction || '';
-        document.getElementById('conclusion').value = conclusion || '';
-        
-        showNotification('Instruções copiadas com sucesso!', 'success');
-    }
-    
-    // Resetar o select
-    copyFromSelect.value = '';
-}
-
-function applyToAllModels() {
-    // Verificar se há dados no formulário
-    const persona = document.getElementById('persona').value;
-    const restrictions = document.getElementById('restrictions').value;
-    const introduction = document.getElementById('introduction').value;
-    const conclusion = document.getElementById('conclusion').value;
-    
-    if (!persona && !restrictions && !introduction && !conclusion) {
-        showNotification('Preencha pelo menos um campo antes de aplicar a todos os modelos.', 'error');
+    if (!selectedModel) {
+        modelForm.style.display = 'none';
         return;
     }
     
-    document.getElementById('applyToAllModal').classList.remove('hidden');
+    // Mostrar formulário
+    modelForm.style.display = 'block';
+    modelIdInput.value = selectedModel;
+    
+    // Carregar instruções existentes ou usar as gerais como base
+    fetch(`{{ url_for("admin_instructions") }}?action=get_model&model_id=${selectedModel}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.instructions) {
+                modelInstructions.value = data.instructions;
+                document.getElementById('is_active').checked = data.is_active;
+            } else {
+                // Usar instruções gerais como base
+                modelInstructions.value = generalInstructions;
+                document.getElementById('is_active').checked = true;
+            }
+        })
+        .catch(error => {
+            console.error('Erro ao carregar instruções:', error);
+            modelInstructions.value = generalInstructions;
+            document.getElementById('is_active').checked = true;
+        });
 }
 
-function closeApplyToAllModal() {
-    document.getElementById('applyToAllModal').classList.add('hidden');
+function resetToGeneral() {
+    document.getElementById('model_instructions').value = generalInstructions;
+    showNotification('Instruções gerais restauradas!', 'info');
 }
 
-function confirmApplyToAll() {
-    const formData = new FormData();
-    formData.append('action', 'apply_to_all');
-    formData.append('persona', document.getElementById('persona').value);
-    formData.append('restrictions', document.getElementById('restrictions').value);
-    formData.append('introduction', document.getElementById('introduction').value);
-    formData.append('conclusion', document.getElementById('conclusion').value);
-    formData.append('is_active', document.getElementById('is_active').checked);
+function editModelInstruction(modelId, instructions, isActive) {
+    // Selecionar o modelo no dropdown
+    document.getElementById('model_selector').value = modelId;
     
-    fetch('{{ url_for("admin_instructions") }}', {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showNotification('Instruções aplicadas a todos os modelos com sucesso!', 'success');
-            setTimeout(() => location.reload(), 1500);
-        } else {
-            showNotification(data.error || 'Erro ao aplicar instruções.', 'error');
-        }
-    })
-    .catch(error => {
-        showNotification('Erro ao aplicar instruções.', 'error');
-    });
+    // Carregar as instruções
+    document.getElementById('model_id_input').value = modelId;
+    document.getElementById('model_instructions').value = instructions;
+    document.getElementById('is_active').checked = isActive === 'true';
     
-    closeApplyToAllModal();
-}
-
-function editInstruction(button) {
-    const modelId = button.getAttribute('data-model-id');
-    const persona = button.getAttribute('data-persona');
-    const restrictions = button.getAttribute('data-restrictions');
-    const introduction = button.getAttribute('data-introduction');
-    const conclusion = button.getAttribute('data-conclusion');
-    const isActive = button.getAttribute('data-is-active') === 'true';
-    
-    // Preencher formulário
-    document.getElementById('model_id').value = modelId;
-    document.getElementById('persona').value = persona;
-    document.getElementById('restrictions').value = restrictions;
-    document.getElementById('introduction').value = introduction;
-    document.getElementById('conclusion').value = conclusion;
-    document.getElementById('is_active').checked = isActive;
-    
-    // Mudar ação do formulário para update
-    document.querySelector('input[name="action"]').value = 'update';
+    // Mostrar formulário
+    document.getElementById('model_form').style.display = 'block';
     
     // Scroll para o formulário
-    document.querySelector('form').scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('model_form').scrollIntoView({ behavior: 'smooth' });
     
-    showNotification('Modo de edição ativado. Clique em "Salvar Instruções" para atualizar.', 'info');
+    showNotification('Modo de edição ativado. Clique em "Salvar Instruções do Modelo" para atualizar.', 'info');
 }
 
 function showNotification(message, type) {
-    // Criar notificação
     const notification = document.createElement('div');
     notification.className = `fixed top-4 right-4 z-50 p-4 rounded-md shadow-lg ${
         type === 'success' ? 'bg-green-500 text-white' :
@@ -447,10 +257,17 @@ function showNotification(message, type) {
     
     document.body.appendChild(notification);
     
-    // Remover após 3 segundos
     setTimeout(() => {
         notification.remove();
     }, 3000);
 }
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            showNotification('{{ message }}', '{{ "success" if category == "success" else "error" if category == "error" else "info" }}');
+        {% endfor %}
+    {% endif %}
+{% endwith %}
 </script>
 {% endblock %} 
