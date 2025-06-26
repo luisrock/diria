@@ -250,6 +250,14 @@ settings.py
 secrets.json
 api_keys.json
 
+# Development and test files (not needed in production)
+test_*.py
+debug_*.py
+check_*.py
+start.sh
+setup.sh
+deploy_script_final.sh
+
 # Node modules (if using any frontend tools)
 node_modules/
 npm-debug.log*
