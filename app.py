@@ -8,6 +8,8 @@ import os
 from dotenv import load_dotenv
 import re
 import json
+import argparse
+import logging
 from ai_manager import ai_manager
 from models_config import get_all_models, get_model_info
 
@@ -977,5 +979,40 @@ def init_db():
             print("✅ Configurações padrão criadas")
 
 if __name__ == '__main__':
+    # Configurar argumentos de linha de comando
+    parser = argparse.ArgumentParser(description='DIRIA - Sistema de Minutas Judiciais')
+    parser.add_argument('--debug', action='store_true', 
+                       help='Ativar logs de debug (mostra payloads das APIs)')
+    parser.add_argument('--host', default='0.0.0.0', 
+                       help='Host para executar a aplicação (padrão: 0.0.0.0)')
+    parser.add_argument('--port', type=int, default=5001, 
+                       help='Porta para executar a aplicação (padrão: 5001)')
+    parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], 
+                       default='INFO', help='Nível de log (padrão: INFO)')
+    
+    args = parser.parse_args()
+    
+    # Configurar logging baseado nos argumentos
+    if args.debug:
+        # Ativar logs de debug para todas as bibliotecas
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        print("🔍 Modo DEBUG ativado - Logs detalhados das APIs serão exibidos")
+    else:
+        # Configuração padrão
+        logging.basicConfig(
+            level=getattr(logging, args.log_level),
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+    
+    # Inicializar banco de dados
     init_db()
-    app.run(debug=True, host='0.0.0.0', port=5001) 
+    
+    # Executar aplicação
+    print(f"🚀 Iniciando DIRIA em http://{args.host}:{args.port}")
+    if args.debug:
+        print("🔍 Logs de debug ativos - Use Ctrl+C para parar")
+    
+    app.run(debug=True, host=args.host, port=args.port) 

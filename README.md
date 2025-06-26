@@ -203,23 +203,41 @@ O sistema possui logs detalhados dos payloads enviados para as APIs de IA, mas e
 
 #### Para ativar logs de debug:
 
-**Opção 1: Temporariamente no código**
+**Opção 1: Via linha de comando (RECOMENDADO)**
+```bash
+# Ativar modo debug
+python app.py --debug
+
+# Com opções adicionais
+python app.py --debug --host 127.0.0.1 --port 5000
+
+# Definir nível de log específico
+python app.py --log-level DEBUG
+```
+
+**Opção 2: Temporariamente no código**
 ```python
 # Em ai_manager.py, linha 12, altere:
 logging.basicConfig(level=logging.DEBUG)  # Em vez de logging.INFO
 ```
 
-**Opção 2: Via variável de ambiente**
+**Opção 3: Via variável de ambiente**
 ```bash
 export PYTHONPATH=/caminho/para/diria
 export LOG_LEVEL=DEBUG
 python app.py
 ```
 
-**Opção 3: Via linha de comando (futuro)**
+#### Opções de linha de comando disponíveis:
 ```bash
-python app.py --debug
+python app.py --help
 ```
+
+**Argumentos suportados:**
+- `--debug`: Ativa logs de debug (mostra payloads das APIs)
+- `--host HOST`: Define o host (padrão: 0.0.0.0)
+- `--port PORT`: Define a porta (padrão: 5001)
+- `--log-level LEVEL`: Define o nível de log (DEBUG, INFO, WARNING, ERROR)
 
 #### O que os logs mostram:
 - **OpenAI**: Payload completo com `model`, `messages` (system + user), `max_completion_tokens`, `temperature`
