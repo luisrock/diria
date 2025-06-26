@@ -141,7 +141,6 @@ fi
 # Configurar permissões (opcional)
 echo "🔐 Configurando permissões..."
 chmod +x start.sh 2>/dev/null || true
-chmod +x setup.sh 2>/dev/null || true
 
 # Reiniciar a aplicação usando supervisorctl
 echo "🔄 Reiniciando aplicação..."
