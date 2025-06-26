@@ -282,7 +282,21 @@ def generate_minuta():
         # Preparar dados para o prompt
         pecas_texto = ""
         for peca in data.get('pecas_processuais', []):
-            pecas_texto += f"\n- {peca.get('nome', '')}: {peca.get('conteudo', '')}\n"
+            nome_peca = peca.get('nome', '').strip()
+            conteudo_peca = peca.get('conteudo', '').strip()
+            
+            if nome_peca and conteudo_peca:
+                # Formatar como grupo estruturado
+                pecas_texto += f"\n{'-' * 50}\n"
+                pecas_texto += f"{nome_peca.upper()}:\n"
+                pecas_texto += f"{'-' * 50}\n"
+                pecas_texto += f"{conteudo_peca}\n"
+                pecas_texto += f"{'-' * 50}\n"
+        
+        # Se não há peças estruturadas, usar formato antigo como fallback
+        if not pecas_texto.strip():
+            for peca in data.get('pecas_processuais', []):
+                pecas_texto += f"\n- {peca.get('nome', '')}: {peca.get('conteudo', '')}\n"
         
         # Substituir placeholders no prompt
         prompt_content = prompt.content
@@ -367,7 +381,21 @@ def adjust_minuta():
         # Preparar dados para o prompt de ajuste
         pecas_texto = ""
         for peca in data.get('pecas_processuais', []):
-            pecas_texto += f"\n- {peca.get('nome', '')}: {peca.get('conteudo', '')}\n"
+            nome_peca = peca.get('nome', '').strip()
+            conteudo_peca = peca.get('conteudo', '').strip()
+            
+            if nome_peca and conteudo_peca:
+                # Formatar como grupo estruturado
+                pecas_texto += f"\n{'-' * 50}\n"
+                pecas_texto += f"{nome_peca.upper()}:\n"
+                pecas_texto += f"{'-' * 50}\n"
+                pecas_texto += f"{conteudo_peca}\n"
+                pecas_texto += f"{'-' * 50}\n"
+        
+        # Se não há peças estruturadas, usar formato antigo como fallback
+        if not pecas_texto.strip():
+            for peca in data.get('pecas_processuais', []):
+                pecas_texto += f"\n- {peca.get('nome', '')}: {peca.get('conteudo', '')}\n"
         
         # Criar prompt de ajuste com histórico
         adjustment_prompt = f"""
