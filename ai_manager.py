@@ -143,31 +143,11 @@ class AIManager:
             if max_tokens == 2000:  # Valor padrão
                 max_tokens = model_info.get("max_tokens", 2000)
             
-            # Aplicar instruções específicas do modelo
-            from app import get_model_instructions, format_instructions_for_provider, format_conclusion_for_provider
-            
-            instructions = get_model_instructions(model)
-            if instructions:
-                # Adicionar instruções no início
-                formatted_instructions = format_instructions_for_provider(instructions, provider, model)
-                if formatted_instructions:
-                    if isinstance(formatted_instructions, dict) and "system_message" in formatted_instructions:
-                        # Usar system message para OpenAI e Anthropic
-                        system_message = formatted_instructions["system_message"]
-                        user_prefix = formatted_instructions.get("user_prefix", "")
-                        if user_prefix:
-                            prompt = user_prefix + " " + prompt
-                        
-                        # Armazenar system message para uso nos métodos de chamada
-                        self._current_system_message = system_message
-                    else:
-                        # Formato antigo (Google ou fallback)
-                        prompt = formatted_instructions + prompt
-                
-                # Adicionar conclusão no final
-                conclusion = format_conclusion_for_provider(instructions, provider)
-                if conclusion:
-                    prompt = prompt + conclusion
+            # Aplicar instruções específicas do modelo (sem dependência do app.py)
+            system_message = self._get_model_instructions(model)
+            if system_message:
+                # Armazenar system message para uso nos métodos de chamada
+                self._current_system_message = system_message
             
             # Contar tokens após aplicar instruções
             tokens_info['request_tokens'] = self.count_request_tokens(prompt, model)
@@ -220,29 +200,34 @@ class AIManager:
             messages.append({"role": "system", "content": system_message})
         messages.append({"role": "user", "content": prompt})
         
+        # OpenAI O3/O4 só aceita temperature = 1
+        temperature = 1
+        
         # Log do payload para debug
         logger.debug("[OpenAI] Payload enviado:")
         logger.debug(pprint.pformat({
             "model": model,
             "messages": messages,
-            "max_tokens": max_tokens
+            "max_tokens": max_tokens,
+            "temperature": temperature
         }))
         
-        # Verificar se é um modelo O3/O4 que usa max_completion_tokens
+        # Preparar parâmetros da requisição
+        request_params = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature
+        }
+        
+        # Usar max_completion_tokens para modelos O3/O4, max_tokens para outros
         if model.startswith('o3-') or model.startswith('o4-'):
-            response = self.openai_client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_completion_tokens=max_tokens,
-                temperature=0.3
-            )
+            request_params["max_completion_tokens"] = max_tokens
+            logger.debug(f"[OpenAI] Usando max_completion_tokens para modelo {model}")
         else:
-            response = self.openai_client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=0.3
-            )
+            request_params["max_tokens"] = max_tokens
+            logger.debug(f"[OpenAI] Usando max_tokens para modelo {model}")
+        
+        response = self.openai_client.chat.completions.create(**request_params)
         return response.choices[0].message.content
     
     def _call_anthropic(self, prompt: str, model: str, max_tokens: int) -> str:
@@ -252,44 +237,65 @@ class AIManager:
             system_message = self._current_system_message
             delattr(self, '_current_system_message')
         
+        # Anthropic aceita temperature de 0.0 a 1.0 - usar 0.3 para área jurídica
+        temperature = 0.3
+        
         # Log do payload para debug
         logger.debug("[Anthropic] Payload enviado:")
         logger.debug(pprint.pformat({
             "model": model,
             "system": system_message,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": max_tokens
+            "max_tokens": max_tokens,
+            "temperature": temperature
         }))
         
         if len(prompt) > 1000:
             return self._call_anthropic_streaming(prompt, model, max_tokens, system_message)
         
-        response = self.anthropic_client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            system=system_message
-        )
+        # Preparar parâmetros da requisição
+        request_params = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature
+        }
+        
+        # Adicionar system message apenas se existir
+        if system_message:
+            request_params["system"] = system_message
+        
+        response = self.anthropic_client.messages.create(**request_params)
         return response.content[0].text
     
     def _call_anthropic_streaming(self, prompt: str, model: str, max_tokens: int, system_message: str = None) -> str:
+        # Anthropic aceita temperature de 0.0 a 1.0 - usar 0.3 para área jurídica
+        temperature = 0.3
+        
         # Log do payload para debug
         logger.debug("[Anthropic-Streaming] Payload enviado:")
         logger.debug(pprint.pformat({
             "model": model,
             "system": system_message,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": max_tokens
+            "max_tokens": max_tokens,
+            "temperature": temperature
         }))
-        response = self.anthropic_client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            stream=True,
-            system=system_message
-        )
+        
+        # Preparar parâmetros da requisição
+        request_params = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+            "stream": True
+        }
+        
+        # Adicionar system message apenas se existir
+        if system_message:
+            request_params["system"] = system_message
+        
+        response = self.anthropic_client.messages.create(**request_params)
         full_response = ""
         for chunk in response:
             if chunk.type == "content_block_delta":
@@ -302,45 +308,38 @@ class AIManager:
         if hasattr(self, '_current_system_message'):
             system_message = self._current_system_message
             delattr(self, '_current_system_message')
+        
+        # Google aceita temperature de 0.0 a 2.0 - usar 0.3 para área jurídica
+        temperature = 0.3
+        
         import google.generativeai as genai
         model_obj = genai.GenerativeModel(model)
         generation_config = genai.types.GenerationConfig(
             max_output_tokens=max_tokens,
-            temperature=0.3
+            temperature=temperature
         )
-        system_instructions = None
-        if system_message:
-            system_instructions = []
-            for line in system_message.split('\n'):
-                line = line.strip()
-                if line and not line.startswith('Você é:') and not line.startswith('Restrições:'):
-                    system_instructions.append(line)
-                elif line.startswith('Você é:'):
-                    persona = line.replace('Você é:', '').strip()
-                    if persona:
-                        system_instructions.append(persona)
-                elif line.startswith('Restrições:'):
-                    restrictions = line.replace('Restrições:', '').strip()
-                    if restrictions:
-                        system_instructions.append(restrictions)
+        
         # Log do payload para debug
         logger.debug("[Google Gemini] Payload enviado:")
         logger.debug(pprint.pformat({
             "model": model,
-            "system_instruction": system_instructions,
+            "system_instruction": system_message,
             "prompt": prompt,
-            "max_output_tokens": max_tokens
+            "max_output_tokens": max_tokens,
+            "temperature": temperature
         }))
-        if system_instructions:
+        
+        # Usar system_instruction se disponível, senão concatenar no prompt
+        if system_message:
             try:
                 response = model_obj.generate_content(
                     prompt,
                     generation_config=generation_config,
-                    system_instruction=system_instructions
+                    system_instruction=system_message
                 )
             except TypeError:
-                system_text = "\n".join(system_instructions)
-                full_prompt = f"{system_text}\n\n{prompt}"
+                # Fallback: concatenar system message no prompt
+                full_prompt = f"{system_message}\n\n{prompt}"
                 response = model_obj.generate_content(
                     full_prompt,
                     generation_config=generation_config
@@ -380,6 +379,25 @@ Data: {datetime.now().strftime('%d/%m/%Y')}
     def get_model_info(self, model: str) -> Dict:
         """Retorna informações detalhadas de um modelo"""
         return get_model_info(model)
+
+    def _get_model_instructions(self, model_id: str) -> str:
+        """Obtém as instruções específicas de um modelo sem dependência do app.py"""
+        try:
+            # Importar aqui para evitar dependência circular
+            from app import db, ModelInstructions
+            
+            # Verificar se estamos no contexto da aplicação Flask
+            from flask import current_app
+            if current_app:
+                with current_app.app_context():
+                    instructions = ModelInstructions.query.filter_by(model_id=model_id, is_active=True).first()
+                    return instructions.instructions if instructions else ""
+            else:
+                # Se não estiver no contexto, retornar vazio
+                return ""
+        except Exception as e:
+            logger.warning(f"Erro ao obter instruções do modelo {model_id}: {e}")
+            return ""
 
 # Instância global
 ai_manager = AIManager() 
