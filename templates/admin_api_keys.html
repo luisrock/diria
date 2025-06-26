@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block title %}Gerenciar API Keys - DIRIA{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="bg-white shadow-lg rounded-lg p-6">
+        <div class="flex items-center">
+            <div class="flex-shrink-0">
+                <i class="fas fa-key text-3xl text-primary-600"></i>
+            </div>
+            <div class="ml-4">
+                <h1 class="text-2xl font-bold text-gray-900">Gerenciar API Keys</h1>
+                <p class="text-sm text-gray-600">Configure as chaves de API para OpenAI, Anthropic e Google</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- OpenAI API Key -->
+    <div class="bg-white shadow-lg rounded-lg p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-medium text-gray-900">
+                <i class="fab fa-openai mr-2 text-green-600"></i>
+                OpenAI API Key
+            </h3>
+            <div class="flex space-x-2">
+                <form method="POST" class="inline">
+                    <input type="hidden" name="action" value="test_key">
+                    <input type="hidden" name="provider" value="openai">
+                    <button type="submit" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                        <i class="fas fa-test-tube mr-2"></i>
+                        Testar
+                    </button>
+                </form>
+            </div>
+        </div>
+        
+        <form method="POST" class="space-y-4">
+            <input type="hidden" name="action" value="update_key">
+            <input type="hidden" name="provider" value="openai">
+            
+            <div>
+                <label for="openai_key" class="block text-sm font-medium text-gray-700 mb-2">
+                    Chave da API OpenAI
+                </label>
+                <div class="flex space-x-2">
+                    <input type="password" id="openai_key" name="api_key" 
+                           value="{{ api_keys.get('openai', {}).api_key if api_keys.get('openai') else '' }}"
+                           class="flex-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                           placeholder="sk-...">
+                    <button type="button" onclick="togglePassword('openai_key')" 
+                            class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                        <i class="fas fa-eye" id="openai_key_icon"></i>
+                    </button>
+                </div>
+                <p class="mt-1 text-xs text-gray-500">
+                    Status: 
+                    {% if api_keys.get('openai') and api_keys.get('openai').is_active %}
+                        <span class="text-green-600"><i class="fas fa-check-circle"></i> Ativa</span>
+                    {% else %}
+                        <span class="text-red-600"><i class="fas fa-times-circle"></i> Não configurada</span>
+                    {% endif %}
+                </p>
+            </div>
+            
+            <div class="flex justify-end">
+                <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                    <i class="fas fa-save mr-2"></i>
+                    Salvar OpenAI
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Anthropic API Key -->
+    <div class="bg-white shadow-lg rounded-lg p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-medium text-gray-900">
+                <i class="fas fa-robot mr-2 text-purple-600"></i>
+                Anthropic API Key
+            </h3>
+            <div class="flex space-x-2">
+                <form method="POST" class="inline">
+                    <input type="hidden" name="action" value="test_key">
+                    <input type="hidden" name="provider" value="anthropic">
+                    <button type="submit" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                        <i class="fas fa-test-tube mr-2"></i>
+                        Testar
+                    </button>
+                </form>
+            </div>
+        </div>
+        
+        <form method="POST" class="space-y-4">
+            <input type="hidden" name="action" value="update_key">
+            <input type="hidden" name="provider" value="anthropic">
+            
+            <div>
+                <label for="anthropic_key" class="block text-sm font-medium text-gray-700 mb-2">
+                    Chave da API Anthropic
+                </label>
+                <div class="flex space-x-2">
+                    <input type="password" id="anthropic_key" name="api_key" 
+                           value="{{ api_keys.get('anthropic', {}).api_key if api_keys.get('anthropic') else '' }}"
+                           class="flex-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                           placeholder="sk-ant-...">
+                    <button type="button" onclick="togglePassword('anthropic_key')" 
+                            class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                        <i class="fas fa-eye" id="anthropic_key_icon"></i>
+                    </button>
+                </div>
+                <p class="mt-1 text-xs text-gray-500">
+                    Status: 
+                    {% if api_keys.get('anthropic') and api_keys.get('anthropic').is_active %}
+                        <span class="text-green-600"><i class="fas fa-check-circle"></i> Ativa</span>
+                    {% else %}
+                        <span class="text-red-600"><i class="fas fa-times-circle"></i> Não configurada</span>
+                    {% endif %}
+                </p>
+            </div>
+            
+            <div class="flex justify-end">
+                <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500">
+                    <i class="fas fa-save mr-2"></i>
+                    Salvar Anthropic
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Google API Key -->
+    <div class="bg-white shadow-lg rounded-lg p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-medium text-gray-900">
+                <i class="fab fa-google mr-2 text-blue-600"></i>
+                Google API Key
+            </h3>
+            <div class="flex space-x-2">
+                <form method="POST" class="inline">
+                    <input type="hidden" name="action" value="test_key">
+                    <input type="hidden" name="provider" value="google">
+                    <button type="submit" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                        <i class="fas fa-test-tube mr-2"></i>
+                        Testar
+                    </button>
+                </form>
+            </div>
+        </div>
+        
+        <form method="POST" class="space-y-4">
+            <input type="hidden" name="action" value="update_key">
+            <input type="hidden" name="provider" value="google">
+            
+            <div>
+                <label for="google_key" class="block text-sm font-medium text-gray-700 mb-2">
+                    Chave da API Google
+                </label>
+                <div class="flex space-x-2">
+                    <input type="password" id="google_key" name="api_key" 
+                           value="{{ api_keys.get('google', {}).api_key if api_keys.get('google') else '' }}"
+                           class="flex-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                           placeholder="AIza...">
+                    <button type="button" onclick="togglePassword('google_key')" 
+                            class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                        <i class="fas fa-eye" id="google_key_icon"></i>
+                    </button>
+                </div>
+                <p class="mt-1 text-xs text-gray-500">
+                    Status: 
+                    {% if api_keys.get('google') and api_keys.get('google').is_active %}
+                        <span class="text-green-600"><i class="fas fa-check-circle"></i> Ativa</span>
+                    {% else %}
+                        <span class="text-red-600"><i class="fas fa-times-circle"></i> Não configurada</span>
+                    {% endif %}
+                </p>
+            </div>
+            
+            <div class="flex justify-end">
+                <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    <i class="fas fa-save mr-2"></i>
+                    Salvar Google
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Informações -->
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div class="flex">
+            <div class="flex-shrink-0">
+                <i class="fas fa-info-circle text-blue-400"></i>
+            </div>
+            <div class="ml-3">
+                <h3 class="text-sm font-medium text-blue-800">Informações Importantes</h3>
+                <div class="mt-2 text-sm text-blue-700">
+                    <ul class="list-disc list-inside space-y-1">
+                        <li>As chaves são armazenadas de forma segura no banco de dados</li>
+                        <li>Use o botão "Testar" para verificar se a chave está funcionando</li>
+                        <li>Deixe o campo vazio para desativar uma API</li>
+                        <li>Após alterar as chaves, reinicie o serviço para aplicar as mudanças</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Voltar -->
+    <div class="flex justify-center">
+        <a href="{{ url_for('admin_panel') }}" 
+           class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+            <i class="fas fa-arrow-left mr-2"></i>
+            Voltar ao Painel Admin
+        </a>
+    </div>
+</div>
+
+<script>
+function togglePassword(fieldId) {
+    const field = document.getElementById(fieldId);
+    const icon = document.getElementById(fieldId + '_icon');
+    
+    if (field.type === 'password') {
+        field.type = 'text';
+        icon.className = 'fas fa-eye-slash';
+    } else {
+        field.type = 'password';
+        icon.className = 'fas fa-eye';
+    }
+}
+</script>
+{% endblock %} 

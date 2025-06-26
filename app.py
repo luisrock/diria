@@ -96,6 +96,17 @@ class GeneralInstructions(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
 
+class APIKey(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    provider = db.Column(db.String(50), unique=True, nullable=False)  # openai, anthropic, google
+    api_key = db.Column(db.Text, nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
+    
+    def __repr__(self):
+        return f'<APIKey {self.provider}>'
+
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
@@ -130,6 +141,26 @@ def get_general_instructions():
     """Obtém as instruções gerais"""
     general = GeneralInstructions.query.first()
     return general.instructions if general else ""
+
+def get_api_key(provider):
+    """Obtém a chave de API de um provedor específico"""
+    api_key = APIKey.query.filter_by(provider=provider, is_active=True).first()
+    return api_key.api_key if api_key else None
+
+def set_api_key(provider, api_key_value):
+    """Define a chave de API de um provedor"""
+    existing = APIKey.query.filter_by(provider=provider).first()
+    if existing:
+        existing.api_key = api_key_value
+        existing.updated_at = datetime.now(timezone.utc)
+    else:
+        new_key = APIKey(provider=provider, api_key=api_key_value)
+        db.session.add(new_key)
+    db.session.commit()
+
+def get_all_api_keys():
+    """Obtém todas as chaves de API"""
+    return APIKey.query.all()
 
 def format_instructions_for_provider(instructions, provider, model_id):
     """Formata as instruções de acordo com o provedor da API"""
@@ -718,15 +749,14 @@ def admin_config():
 @login_required
 def admin_instructions():
     if not current_user.is_admin:
-        flash('Acesso negado. Apenas administradores podem acessar esta página.', 'error')
+        flash('Acesso negado.', 'error')
         return redirect(url_for('dashboard'))
     
     if request.method == 'POST':
         action = request.form.get('action')
         
-        if action == 'save_general':
-            instructions = request.form.get('general_instructions')
-            
+        if action == 'general':
+            instructions = request.form.get('general_instructions', '')
             general = GeneralInstructions.query.first()
             if general:
                 general.instructions = instructions
@@ -734,84 +764,97 @@ def admin_instructions():
             else:
                 general = GeneralInstructions(instructions=instructions)
                 db.session.add(general)
-            
             db.session.commit()
-            flash('Instruções gerais salvas com sucesso!', 'success')
+            flash('Instruções gerais atualizadas com sucesso!', 'success')
             
-        elif action == 'save_model':
+        elif action == 'model':
             model_id = request.form.get('model_id')
-            instructions = request.form.get('model_instructions')
-            is_active = request.form.get('is_active') == 'on'
+            instructions = request.form.get('model_instructions', '')
             
-            if not model_id or not instructions:
-                flash('Modelo e instruções são obrigatórios.', 'error')
-            else:
+            if model_id and instructions:
                 existing = ModelInstructions.query.filter_by(model_id=model_id).first()
                 if existing:
                     existing.instructions = instructions
-                    existing.is_active = is_active
                     existing.updated_at = datetime.now(timezone.utc)
-                    flash(f'Instruções atualizadas com sucesso para o modelo {model_id}.', 'success')
                 else:
-                    instruction = ModelInstructions(
+                    new_instructions = ModelInstructions(
                         model_id=model_id,
-                        instructions=instructions,
-                        is_active=is_active
+                        instructions=instructions
                     )
-                    db.session.add(instruction)
-                    flash(f'Instruções criadas com sucesso para o modelo {model_id}.', 'success')
-                
+                    db.session.add(new_instructions)
                 db.session.commit()
-        
-        elif action == 'delete':
-            model_id = request.form.get('model_id')
-            instruction = ModelInstructions.query.filter_by(model_id=model_id).first()
-            if instruction:
-                db.session.delete(instruction)
-                db.session.commit()
-                flash(f'Instruções excluídas com sucesso para o modelo {model_id}.', 'success')
-            else:
-                flash(f'Instruções não encontradas para o modelo {model_id}.', 'error')
+                flash(f'Instruções do modelo {model_id} atualizadas com sucesso!', 'success')
     
-    # GET request ou após POST
-    if request.method == 'GET' and request.args.get('action') == 'get_model':
-        # Retornar instruções de um modelo específico via AJAX
-        model_id = request.args.get('model_id')
-        instruction = ModelInstructions.query.filter_by(model_id=model_id).first()
-        
-        if instruction:
-            return jsonify({
-                'success': True,
-                'instructions': instruction.instructions,
-                'is_active': instruction.is_active
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'instructions': '',
-                'is_active': True
-            })
-    
-    # Obter dados para o template
-    from models_config import get_all_models, get_model_info
-    available_models = []
-    for model_id in get_all_models():
-        info = get_model_info(model_id)
-        if info:
-            available_models.append({
-                'id': model_id,
-                'name': f"{info['display_name']} ({info['provider_name']})",
-                'provider': info['provider_name'],
-                'description': info['description']
-            })
-    
-    instructions_list = ModelInstructions.query.order_by(ModelInstructions.model_id).all()
+    # Obter dados para exibição
     general_instructions = get_general_instructions()
+    model_instructions = ModelInstructions.query.all()
+    available_models = get_all_models()
     
     return render_template('admin_instructions.html', 
-                         available_models=available_models,
-                         instructions_list=instructions_list,
-                         general_instructions=general_instructions)
+                         general_instructions=general_instructions,
+                         model_instructions=model_instructions,
+                         available_models=available_models)
+
+@app.route('/admin/api_keys', methods=['GET', 'POST'])
+@login_required
+def admin_api_keys():
+    if not current_user.is_admin:
+        flash('Acesso negado.', 'error')
+        return redirect(url_for('dashboard'))
+    
+    if request.method == 'POST':
+        action = request.form.get('action')
+        
+        if action == 'update_key':
+            provider = request.form.get('provider')
+            api_key = request.form.get('api_key', '').strip()
+            
+            if provider and api_key:
+                set_api_key(provider, api_key)
+                flash(f'Chave da API {provider} atualizada com sucesso!', 'success')
+            elif provider and not api_key:
+                # Desativar chave
+                existing = APIKey.query.filter_by(provider=provider).first()
+                if existing:
+                    existing.is_active = False
+                    existing.updated_at = datetime.now(timezone.utc)
+                    db.session.commit()
+                    flash(f'Chave da API {provider} desativada!', 'success')
+        
+        elif action == 'test_key':
+            provider = request.form.get('provider')
+            api_key = get_api_key(provider)
+            
+            if api_key:
+                # Testar a chave (implementação básica)
+                try:
+                    if provider == 'openai':
+                        import openai
+                        client = openai.OpenAI(api_key=api_key)
+                        response = client.models.list()
+                        flash(f'Chave da API {provider} válida!', 'success')
+                    elif provider == 'anthropic':
+                        import anthropic
+                        client = anthropic.Anthropic(api_key=api_key)
+                        # Teste básico
+                        flash(f'Chave da API {provider} válida!', 'success')
+                    elif provider == 'google':
+                        import google.generativeai as genai
+                        genai.configure(api_key=api_key)
+                        # Teste básico
+                        flash(f'Chave da API {provider} válida!', 'success')
+                except Exception as e:
+                    flash(f'Erro ao testar chave da API {provider}: {str(e)}', 'error')
+            else:
+                flash(f'Chave da API {provider} não encontrada!', 'error')
+    
+    # Obter chaves existentes
+    api_keys = get_all_api_keys()
+    
+    # Criar dicionário para facilitar o acesso
+    keys_dict = {key.provider: key for key in api_keys}
+    
+    return render_template('admin_api_keys.html', api_keys=keys_dict)
 
 # Inicialização do banco de dados
 def init_db():

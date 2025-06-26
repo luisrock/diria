@@ -76,7 +76,7 @@ class AIManager:
     def _setup_clients(self):
         """Configura os clientes das APIs"""
         # OpenAI
-        openai_api_key = os.getenv('OPENAI_API_KEY')
+        openai_api_key = self._get_api_key_from_db('openai')
         if openai_api_key:
             try:
                 self.openai_client = openai.OpenAI(api_key=openai_api_key)
@@ -85,7 +85,7 @@ class AIManager:
                 logger.error(f"Erro ao configurar OpenAI: {e}")
         
         # Anthropic
-        anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
+        anthropic_api_key = self._get_api_key_from_db('anthropic')
         if anthropic_api_key:
             try:
                 self.anthropic_client = anthropic.Anthropic(
@@ -97,7 +97,7 @@ class AIManager:
                 logger.error(f"Erro ao configurar Anthropic: {e}")
         
         # Google
-        google_api_key = os.getenv('GOOGLE_API_KEY')
+        google_api_key = self._get_api_key_from_db('google')
         if google_api_key:
             try:
                 genai.configure(api_key=google_api_key)
@@ -105,6 +105,52 @@ class AIManager:
                 logger.info("Cliente Google configurado")
             except Exception as e:
                 logger.error(f"Erro ao configurar Google: {e}")
+    
+    def _get_api_key_from_db(self, provider):
+        """Obtém a chave de API do banco de dados"""
+        try:
+            # Importar aqui para evitar dependência circular
+            from flask import current_app
+            from flask_sqlalchemy import SQLAlchemy
+            
+            # Verificar se estamos no contexto da aplicação Flask
+            if current_app:
+                # Importar dentro do contexto para evitar circular import
+                from app import db, APIKey
+                
+                with current_app.app_context():
+                    api_key = APIKey.query.filter_by(provider=provider, is_active=True).first()
+                    return api_key.api_key if api_key else None
+            else:
+                # Se não estiver no contexto, tentar ler do .env como fallback
+                import os
+                from dotenv import load_dotenv
+                load_dotenv()
+                
+                if provider == 'openai':
+                    return os.getenv('OPENAI_API_KEY')
+                elif provider == 'anthropic':
+                    return os.getenv('ANTHROPIC_API_KEY')
+                elif provider == 'google':
+                    return os.getenv('GOOGLE_API_KEY')
+                return None
+        except Exception as e:
+            logger.warning(f"Erro ao obter chave da API {provider} do banco: {e}")
+            # Fallback para .env
+            try:
+                import os
+                from dotenv import load_dotenv
+                load_dotenv()
+                
+                if provider == 'openai':
+                    return os.getenv('OPENAI_API_KEY')
+                elif provider == 'anthropic':
+                    return os.getenv('ANTHROPIC_API_KEY')
+                elif provider == 'google':
+                    return os.getenv('GOOGLE_API_KEY')
+            except:
+                pass
+            return None
     
     def count_request_tokens(self, prompt: str, model: str) -> int:
         """Conta tokens da requisição (prompt)"""
@@ -383,12 +429,12 @@ Data: {datetime.now().strftime('%d/%m/%Y')}
     def _get_model_instructions(self, model_id: str) -> str:
         """Obtém as instruções específicas de um modelo sem dependência do app.py"""
         try:
-            # Importar aqui para evitar dependência circular
-            from app import db, ModelInstructions
-            
             # Verificar se estamos no contexto da aplicação Flask
             from flask import current_app
             if current_app:
+                # Importar dentro do contexto para evitar circular import
+                from app import db, ModelInstructions
+                
                 with current_app.app_context():
                     instructions = ModelInstructions.query.filter_by(model_id=model_id, is_active=True).first()
                     return instructions.instructions if instructions else ""
