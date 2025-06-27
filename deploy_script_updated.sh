@@ -158,9 +158,9 @@ else
         
         # 1. Limpeza por quantidade (manter apenas os últimos N)
         echo "  📊 Limpeza por quantidade (mantendo últimos $MAX_BACKUPS)..."
-        local backup_count=$(ls -1 "$BACKUP_DIR"/diria_backup_*.db 2>/dev/null | wc -l)
+        backup_count=$(ls -1 "$BACKUP_DIR"/diria_backup_*.db 2>/dev/null | wc -l)
         if [ "$backup_count" -gt "$MAX_BACKUPS" ]; then
-            local to_remove=$((backup_count - MAX_BACKUPS))
+            to_remove=$((backup_count - MAX_BACKUPS))
             ls -t "$BACKUP_DIR"/diria_backup_*.db 2>/dev/null | tail -n "$to_remove" | xargs -r rm
             echo "    ✅ Removidos $to_remove backup(s) antigo(s)"
         else
@@ -169,11 +169,11 @@ else
         
         # 2. Limpeza por data (manter apenas backups dos últimos N dias)
         echo "  📅 Limpeza por data (mantendo últimos $MAX_DAILY_BACKUPS dias)..."
-        local cutoff_date=$(date -d "$MAX_DAILY_BACKUPS days ago" +"%Y%m%d" 2>/dev/null || date -v-${MAX_DAILY_BACKUPS}d +"%Y%m%d" 2>/dev/null || echo "00000000")
+        cutoff_date=$(date -d "$MAX_DAILY_BACKUPS days ago" +"%Y%m%d" 2>/dev/null || date -v-${MAX_DAILY_BACKUPS}d +"%Y%m%d" 2>/dev/null || echo "00000000")
         
         for backup in "$BACKUP_DIR"/diria_backup_*.db; do
             if [ -f "$backup" ]; then
-                local backup_date=$(echo "$backup" | grep -o '[0-9]\{8\}' | head -1)
+                backup_date=$(echo "$backup" | grep -o '[0-9]\{8\}' | head -1)
                 if [ "$backup_date" != "" ] && [ "$backup_date" -lt "$cutoff_date" ]; then
                     rm "$backup"
                     echo "    🗑️  Removido backup antigo: $(basename "$backup")"
@@ -183,16 +183,16 @@ else
         
         # 3. Limpeza por tamanho (se exceder limite)
         echo "  💾 Verificando tamanho total dos backups..."
-        local total_size=$(calculate_backup_size)
+        total_size=$(calculate_backup_size)
         if [ "$total_size" -gt "$MAX_SIZE_MB" ]; then
             echo "    ⚠️  Tamanho total: ${total_size}MB (limite: ${MAX_SIZE_MB}MB)"
             echo "    🗑️  Removendo backups mais antigos até atingir o limite..."
             
             while [ "$total_size" -gt "$MAX_SIZE_MB" ] && [ "$(ls -1 "$BACKUP_DIR"/diria_backup_*.db 2>/dev/null | wc -l)" -gt 1 ]; do
-                local oldest_backup=$(ls -t "$BACKUP_DIR"/diria_backup_*.db 2>/dev/null | tail -1)
+                oldest_backup=$(ls -t "$BACKUP_DIR"/diria_backup_*.db 2>/dev/null | tail -1)
                 if [ -f "$oldest_backup" ]; then
-                    local backup_size=$(stat -c%s "$oldest_backup" 2>/dev/null || stat -f%z "$oldest_backup" 2>/dev/null || echo 0)
-                    local backup_size_mb=$((backup_size / 1024 / 1024))
+                    backup_size=$(stat -c%s "$oldest_backup" 2>/dev/null || stat -f%z "$oldest_backup" 2>/dev/null || echo 0)
+                    backup_size_mb=$((backup_size / 1024 / 1024))
                     rm "$oldest_backup"
                     total_size=$((total_size - backup_size_mb))
                     echo "      🗑️  Removido: $(basename "$oldest_backup") (${backup_size_mb}MB)"
@@ -205,8 +205,8 @@ else
         fi
         
         # 4. Relatório final
-        local final_count=$(ls -1 "$BACKUP_DIR"/diria_backup_*.db 2>/dev/null | wc -l)
-        local final_size=$(calculate_backup_size)
+        final_count=$(ls -1 "$BACKUP_DIR"/diria_backup_*.db 2>/dev/null | wc -l)
+        final_size=$(calculate_backup_size)
         echo "  📋 Relatório final: $final_count backup(s), ${final_size}MB total"
         echo "✅ Gerenciamento de backups concluído"
     else
