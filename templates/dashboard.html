@@ -708,38 +708,65 @@ document.getElementById('minutaForm').addEventListener('submit', async function(
             
             // Remover verificação de backup - sistema será eliminado
             
-            // Mostrar informações de tokens se disponíveis
-            if (result.tokens_info) {
-                const tokensInfo = result.tokens_info;
-                const tokensHtml = `
+            // Mostrar informações de tokens e custos se disponíveis
+            if (result.tokens_info || result.cost_info) {
+                const tokensInfo = result.tokens_info || {};
+                const costInfo = result.cost_info || {};
+                
+                let tokensHtml = `
                     <div class="mt-4 p-3 bg-gray-50 rounded-lg">
                         <h4 class="text-sm font-medium text-gray-700 mb-2">
                             <i class="fas fa-chart-bar mr-2"></i>Informações de Tokens
                         </h4>
-                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs mb-3">
                             <div class="text-center">
-                                <div class="font-medium text-purple-600">${tokensInfo.total_tokens}</div>
-                                <div class="text-gray-500">Total</div>
+                                <div class="font-medium text-purple-600">${tokensInfo.total_tokens || 0}</div>
+                                <div class="text-gray-500">Total Tokens</div>
                             </div>
                             <div class="text-center">
-                                <div class="font-medium text-blue-600">${tokensInfo.request_tokens}</div>
+                                <div class="font-medium text-blue-600">${tokensInfo.request_tokens || 0}</div>
                                 <div class="text-gray-500">Envio</div>
                             </div>
                             <div class="text-center">
-                                <div class="font-medium text-green-600">${tokensInfo.response_tokens}</div>
+                                <div class="font-medium text-green-600">${tokensInfo.response_tokens || 0}</div>
                                 <div class="text-gray-500">Resposta</div>
                             </div>
                             <div class="text-center">
-                                <div class="font-medium text-gray-600">${tokensInfo.model_used}</div>
+                                <div class="font-medium text-gray-600">${tokensInfo.model_used || 'N/A'}</div>
                                 <div class="text-gray-500">Modelo</div>
                             </div>
-                        </div>
+                        </div>`;
+                
+                // Adicionar custo simplificado se disponível
+                if (result.user_cost) {
+                    tokensHtml += `
+                        <div class="border-t border-gray-200 pt-3">
+                            <div class="text-center">
+                                <div class="text-lg font-bold text-red-600">${result.user_cost}</div>
+                                <div class="text-xs text-gray-500">Custo Estimado</div>
+                            </div>
+                        </div>`;
+                } else if (costInfo && costInfo.total_cost_usd) {
+                    // Fallback: converter USD para BRL (aproximado)
+                    const costUsd = parseFloat(costInfo.total_cost_usd.replace('$', ''));
+                    const costBrl = (costUsd * 5.5).toFixed(2).replace('.', ',');
+                    
+                    tokensHtml += `
+                        <div class="border-t border-gray-200 pt-3">
+                            <div class="text-center">
+                                <div class="text-lg font-bold text-red-600">R$ ${costBrl}</div>
+                                <div class="text-xs text-gray-500">Custo Estimado</div>
+                            </div>
+                        </div>`;
+                }
+                
+                tokensHtml += `
                         ${tokensInfo.success ? 
                             '<div class="mt-2 text-center"><span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800"><i class="fas fa-check mr-1"></i>Sucesso</span></div>' :
                             '<div class="mt-2 text-center"><span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800"><i class="fas fa-times mr-1"></i>Erro</span></div>'
                         }
-                    </div>
-                `;
+                    </div>`;
+                
                 document.getElementById('tokens-info').innerHTML = tokensHtml;
             }
             
@@ -967,7 +994,7 @@ async function requestAdjustment() {
         
         if (response.ok) {
             // Criar nova versão
-            createNewVersion(result.minuta, adjustPrompt, result.tokens_info);
+            createNewVersion(result.minuta, adjustPrompt, result.tokens_info, result.cost_info, result.user_cost);
             
             // Fechar modal
             hideAdjustDialog();
@@ -990,7 +1017,7 @@ async function requestAdjustment() {
     }
 }
 
-function createNewVersion(content, adjustmentPrompt, tokensInfo) {
+function createNewVersion(content, adjustmentPrompt, tokensInfo, costInfo, user_cost = null) {
     versionCounter++;
     const versionId = `version-${versionCounter}`;
     
@@ -1044,36 +1071,64 @@ function createNewVersion(content, adjustmentPrompt, tokensInfo) {
     editorContainer.className = 'mb-4';
     editorContainer.innerHTML = `<div id="editor-${versionId}"></div>`;
     
-    // Criar informações de tokens
+    // Criar informações de tokens e custo simplificado
     const tokensContainer = document.createElement('div');
     tokensContainer.className = 'p-3 bg-white rounded-lg border';
-    tokensContainer.innerHTML = `
+    
+    let tokensHtml = `
         <h5 class="text-sm font-medium text-gray-700 mb-2">
             <i class="fas fa-chart-bar mr-2"></i>Informações de Tokens
         </h5>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs mb-3">
             <div class="text-center">
-                <div class="font-medium text-purple-600">${tokensInfo.total_tokens}</div>
-                <div class="text-gray-500">Total</div>
+                <div class="font-medium text-purple-600">${tokensInfo.total_tokens || 0}</div>
+                <div class="text-gray-500">Total Tokens</div>
             </div>
             <div class="text-center">
-                <div class="font-medium text-blue-600">${tokensInfo.request_tokens}</div>
+                <div class="font-medium text-blue-600">${tokensInfo.request_tokens || 0}</div>
                 <div class="text-gray-500">Envio</div>
             </div>
             <div class="text-center">
-                <div class="font-medium text-green-600">${tokensInfo.response_tokens}</div>
+                <div class="font-medium text-green-600">${tokensInfo.response_tokens || 0}</div>
                 <div class="text-gray-500">Resposta</div>
             </div>
             <div class="text-center">
-                <div class="font-medium text-gray-600">${tokensInfo.model_used}</div>
+                <div class="font-medium text-gray-600">${tokensInfo.model_used || 'N/A'}</div>
                 <div class="text-gray-500">Modelo</div>
             </div>
-        </div>
+        </div>`;
+    
+    // Adicionar custo simplificado se disponível
+    if (user_cost) {
+        tokensHtml += `
+            <div class="border-t border-gray-200 pt-3">
+                <div class="text-center">
+                    <div class="text-lg font-bold text-red-600">${user_cost}</div>
+                    <div class="text-xs text-gray-500">Custo Estimado</div>
+                </div>
+            </div>`;
+    } else if (costInfo && costInfo.total_cost_usd) {
+        // Fallback: converter USD para BRL (aproximado)
+        const costUsd = parseFloat(costInfo.total_cost_usd.replace('$', ''));
+        const costBrl = (costUsd * 5.5).toFixed(2).replace('.', ',');
+        
+        tokensHtml += `
+            <div class="border-t border-gray-200 pt-3">
+                <div class="text-center">
+                    <div class="text-lg font-bold text-red-600">R$ ${costBrl}</div>
+                    <div class="text-xs text-gray-500">Custo Estimado</div>
+                </div>
+            </div>`;
+    }
+    
+    tokensHtml += `
         ${tokensInfo.success ? 
             '<div class="mt-2 text-center"><span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800"><i class="fas fa-check mr-1"></i>Sucesso</span></div>' :
             '<div class="mt-2 text-center"><span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800"><i class="fas fa-times mr-1"></i>Erro</span></div>'
         }
     `;
+    
+    tokensContainer.innerHTML = tokensHtml;
     
     // Montar versão
     versionContainer.appendChild(versionHeader);

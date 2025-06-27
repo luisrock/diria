@@ -12,6 +12,8 @@ import argparse
 import logging
 from ai_manager import ai_manager
 from models_config import get_all_models, get_model_info
+import requests
+from datetime import date, timedelta
 
 # Carregar variáveis de ambiente
 load_dotenv()
@@ -107,6 +109,15 @@ class APIKey(db.Model):
     def __repr__(self):
         return f'<APIKey {self.provider}>'
 
+class DollarRate(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    rate = db.Column(db.Float, nullable=False)  # Taxa de câmbio USD/BRL
+    date = db.Column(db.Date, nullable=False)   # Data da cotação
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    
+    def __repr__(self):
+        return f'<DollarRate {self.date}: {self.rate}>'
+
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
@@ -161,6 +172,94 @@ def set_api_key(provider, api_key_value):
 def get_all_api_keys():
     """Obtém todas as chaves de API"""
     return APIKey.query.all()
+
+def get_dollar_rate():
+    """
+    Obtém a cotação atual do dólar.
+    Se não houver cotação para hoje, busca da API do Banco Central.
+    """
+    today = date.today()
+    
+    # Verificar se já temos cotação para hoje
+    rate_record = DollarRate.query.filter_by(date=today).first()
+    if rate_record:
+        return rate_record.rate
+    
+    # Se não temos, buscar da API do Banco Central
+    try:
+        # Data de ontem (API do BC usa data anterior)
+        yesterday = today - timedelta(days=1)
+        date_str = yesterday.strftime('%m-%d-%Y')
+        
+        url = f"https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoDolarDia(dataCotacao=@dataCotacao)?@dataCotacao='{date_str}'&$top=100&$format=json&$select=cotacaoVenda"
+        
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        if data.get('value') and len(data['value']) > 0:
+            rate = data['value'][0]['cotacaoVenda']
+            
+            # Salvar no banco
+            new_rate = DollarRate(rate=rate, date=today)
+            db.session.add(new_rate)
+            db.session.commit()
+            
+            return rate
+        else:
+            raise ValueError("Resposta da API não contém dados válidos")
+            
+    except Exception as e:
+        # Em caso de erro, usar a cotação mais recente disponível
+        logger.warning(f"Erro ao buscar cotação do dólar: {e}")
+        
+        latest_rate = DollarRate.query.order_by(DollarRate.date.desc()).first()
+        if latest_rate:
+            return latest_rate.rate
+        else:
+            # Fallback: usar cotação fixa se não houver nenhuma
+            return 5.50
+
+def format_cost_for_user(cost_usd):
+    """
+    Formata o custo para exibição ao usuário em Real
+    """
+    if cost_usd is None or cost_usd <= 0:
+        return "R$ 0,00"
+    
+    rate = get_dollar_rate()
+    cost_brl = cost_usd * rate
+    
+    # Arredondar para cima em no máximo duas casas decimais
+    cost_brl = round(cost_brl + 0.005, 2)  # +0.005 para arredondar para cima
+    
+    return f"R$ {cost_brl:.2f}".replace('.', ',')
+
+def format_cost_for_admin(cost_usd):
+    """
+    Formata o custo para exibição ao admin (USD e BRL)
+    """
+    if cost_usd is None or cost_usd <= 0:
+        return {
+            'usd': '$0.00',
+            'brl': 'R$ 0,00',
+            'rate': 0,
+            'rate_date': None
+        }
+    
+    rate = get_dollar_rate()
+    cost_brl = cost_usd * rate
+    
+    # Buscar data da cotação
+    rate_record = DollarRate.query.order_by(DollarRate.date.desc()).first()
+    rate_date = rate_record.date if rate_record else None
+    
+    return {
+        'usd': f"${cost_usd:.6f}",
+        'brl': f"R$ {cost_brl:.2f}".replace('.', ','),
+        'rate': rate,
+        'rate_date': rate_date.strftime('%d/%m/%Y') if rate_date else 'N/A'
+    }
 
 def format_instructions_for_provider(instructions, provider, model_id):
     """Formata as instruções de acordo com o provedor da API"""
@@ -335,7 +434,9 @@ def generate_minuta():
                 'total_tokens': tokens_info['total_tokens'],
                 'model_used': tokens_info['model_used'],
                 'success': tokens_info['success']
-            }
+            },
+            'cost_info': tokens_info.get('display_info', {}),
+            'user_cost': format_cost_for_user(tokens_info.get('cost_info', {}).get('total_cost', 0))
         })
         
     except Exception as e:
@@ -447,7 +548,9 @@ Por favor, gere uma nova versão da minuta aplicando o ajuste solicitado. Manten
                 'total_tokens': tokens_info['total_tokens'],
                 'model_used': tokens_info['model_used'],
                 'success': tokens_info['success']
-            }
+            },
+            'cost_info': tokens_info.get('display_info', {}),
+            'user_cost': format_cost_for_user(tokens_info.get('cost_info', {}).get('total_cost', 0))
         })
         
     except Exception as e:
@@ -648,7 +751,31 @@ def admin_logs():
         return redirect(url_for('dashboard'))
     
     logs = UsageLog.query.order_by(UsageLog.created_at.desc()).limit(100).all()
-    return render_template('admin_logs.html', logs=logs)
+    
+    # Calcular custos estimados para cada log e total
+    total_cost_usd = 0
+    for log in logs:
+        if log.tokens_used > 0 and log.model_used:
+            from models_config import calculate_cost
+            # Usar request_tokens e response_tokens se disponíveis, senão estimar
+            if log.request_tokens and log.response_tokens:
+                input_tokens = log.request_tokens
+                output_tokens = log.response_tokens
+            else:
+                # Estimativa: 50% input, 50% output
+                input_tokens = log.tokens_used // 2
+                output_tokens = log.tokens_used - input_tokens
+            
+            cost_info = calculate_cost(input_tokens, output_tokens, log.model_used)
+            log.estimated_cost_brl = format_cost_for_user(cost_info.get('total_cost', 0))
+            total_cost_usd += cost_info.get('total_cost', 0)
+        else:
+            log.estimated_cost_brl = "R$ 0,00"
+    
+    # Calcular custo total em BRL
+    total_cost_brl = format_cost_for_user(total_cost_usd)
+    
+    return render_template('admin_logs.html', logs=logs, total_cost_brl=total_cost_brl)
 
 @app.route('/admin/stats')
 @login_required
@@ -663,6 +790,17 @@ def admin_stats():
     total_requests = UsageLog.query.filter_by(action='generate_minuta').count()
     successful_requests = UsageLog.query.filter_by(action='generate_minuta', success=True).count()
     
+    # Calcular custos totais estimados
+    total_cost_usd = 0
+    for log in UsageLog.query.filter(UsageLog.tokens_used > 0).all():
+        if log.model_used:
+            from models_config import calculate_cost
+            cost_info = calculate_cost(log.request_tokens or 0, log.response_tokens or 0, log.model_used)
+            total_cost_usd += cost_info.get('total_cost', 0)
+    
+    # Formatar custos para admin
+    admin_cost_info = format_cost_for_admin(total_cost_usd)
+    
     # Tokens por modelo
     tokens_by_model = db.session.query(
         UsageLog.model_used,
@@ -672,6 +810,28 @@ def admin_stats():
         UsageLog.model_used.isnot(None),
         UsageLog.tokens_used > 0
     ).group_by(UsageLog.model_used).all()
+    
+    # Calcular custos por modelo
+    model_costs = []
+    for model_data in tokens_by_model:
+        model_id = model_data.model_used
+        total_tokens = model_data.total_tokens
+        count = model_data.count
+        
+        # Estimar custo baseado no modelo
+        from models_config import calculate_cost
+        # Assumir 50% input, 50% output para estimativa
+        estimated_input = total_tokens // 2
+        estimated_output = total_tokens - estimated_input
+        cost_info = calculate_cost(estimated_input, estimated_output, model_id)
+        
+        model_costs.append({
+            'model': model_id,
+            'total_tokens': total_tokens,
+            'count': count,
+            'cost_usd': cost_info.get('total_cost', 0),
+            'cost_brl': format_cost_for_user(cost_info.get('total_cost', 0))
+        })
     
     # Tokens por usuário
     tokens_by_user = db.session.query(
@@ -683,7 +843,6 @@ def admin_stats():
     ).group_by(User.id, User.name).all()
     
     # Últimos 7 dias
-    from datetime import timedelta
     seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
     recent_logs = UsageLog.query.filter(
         UsageLog.created_at >= seven_days_ago
@@ -696,6 +855,10 @@ def admin_stats():
         UsageLog.tokens_used > 0
     ).scalar() or 0
     
+    # Cotação atual do dólar
+    current_rate = get_dollar_rate()
+    latest_rate_record = DollarRate.query.order_by(DollarRate.date.desc()).first()
+    
     stats = {
         'total_logs': total_logs,
         'total_tokens': total_tokens,
@@ -703,9 +866,14 @@ def admin_stats():
         'successful_requests': successful_requests,
         'success_rate': (successful_requests / total_requests * 100) if total_requests > 0 else 0,
         'tokens_by_model': tokens_by_model,
+        'model_costs': model_costs,
         'tokens_by_user': tokens_by_user,
         'recent_logs': recent_logs,
-        'recent_tokens': recent_tokens
+        'recent_tokens': recent_tokens,
+        'total_cost_usd': admin_cost_info['usd'],
+        'total_cost_brl': admin_cost_info['brl'],
+        'current_rate': current_rate,
+        'rate_date': admin_cost_info['rate_date']
     }
     
     return render_template('admin_stats.html', stats=stats)

@@ -25,7 +25,7 @@
     </div>
 
     <!-- Estatísticas -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div class="bg-white shadow-lg rounded-lg p-6">
             <div class="flex items-center">
                 <div class="flex-shrink-0">
@@ -41,11 +41,23 @@
         <div class="bg-white shadow-lg rounded-lg p-6">
             <div class="flex items-center">
                 <div class="flex-shrink-0">
-                    <i class="fas fa-tokens text-2xl text-green-600"></i>
+                    <i class="fas fa-cubes text-2xl text-green-600"></i>
                 </div>
                 <div class="ml-4">
                     <p class="text-sm font-medium text-gray-600">Total de Tokens</p>
                     <p class="text-2xl font-semibold text-gray-900">{{ logs|sum(attribute='tokens_used') }}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white shadow-lg rounded-lg p-6">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <i class="fas fa-money-bill-wave text-2xl text-red-600"></i>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-600">Custo Total Estimado</p>
+                    <p class="text-2xl font-semibold text-gray-900">{{ total_cost_brl }}</p>
                 </div>
             </div>
         </div>
@@ -117,7 +129,7 @@
                             <div class="space-y-1">
                                 <div class="flex items-center space-x-2">
                                     <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                                        <i class="fas fa-tokens mr-1"></i>{{ log.tokens_used }}
+                                        <i class="fas fa-cubes mr-1"></i>{{ log.tokens_used }}
                                     </span>
                                     {% if log.model_used %}
                                     <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
@@ -131,6 +143,9 @@
                                     <span>📥 {{ log.response_tokens }}</span>
                                 </div>
                                 {% endif %}
+                                <div class="text-xs text-red-600 font-medium">
+                                    <i class="fas fa-money-bill-wave mr-1"></i>{{ log.estimated_cost_brl }}
+                                </div>
                             </div>
                             {% else %}
                             <span class="text-gray-400">-</span>

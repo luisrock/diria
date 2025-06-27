@@ -9,10 +9,129 @@ import logging
 from datetime import datetime
 from models_config import MODELS_CONFIG, get_all_models, get_model_info, get_provider_for_model
 import pprint
+from sqlalchemy import text
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+class TokenUsageManager:
+    """Gerenciador de uso de tokens e custos para múltiplas APIs"""
+    
+    def __init__(self):
+        self.token_counter = TokenCounter()
+    
+    def calculate_cost_from_api_response(self, usage_data: Dict, model: str) -> Dict:
+        """
+        Calcula custo baseado na resposta da API (mais preciso)
+        
+        Args:
+            usage_data: Dados de uso da API (input_tokens, output_tokens, etc.)
+            model: ID do modelo usado
+            
+        Returns:
+            Dict com custos detalhados
+        """
+        try:
+            from models_config import calculate_cost
+            
+            input_tokens = usage_data.get('input_tokens', 0)
+            output_tokens = usage_data.get('output_tokens', 0)
+            
+            # Calcular custo usando a função existente
+            cost_info = calculate_cost(input_tokens, output_tokens, model)
+            
+            # Adicionar informações de cache se disponíveis
+            cache_creation = usage_data.get('cache_creation_tokens', 0)
+            cache_read = usage_data.get('cache_read_tokens', 0)
+            
+            cost_info.update({
+                'cache_creation_input_tokens': cache_creation,
+                'cache_read_input_tokens': cache_read,
+                'api_provided': True
+            })
+            
+            return cost_info
+            
+        except Exception as e:
+            logger.error(f"Erro ao calcular custo da API: {e}")
+            return self._fallback_cost_calculation(usage_data, model)
+    
+    def calculate_cost_from_estimation(self, prompt: str, response: str, model: str) -> Dict:
+        """
+        Calcula custo baseado em estimativa com tiktoken (fallback)
+        
+        Args:
+            prompt: Texto do prompt
+            response: Texto da resposta
+            model: ID do modelo usado
+            
+        Returns:
+            Dict com custos detalhados
+        """
+        try:
+            from models_config import calculate_cost
+            
+            input_tokens = self.token_counter.count_tokens(prompt, model)
+            output_tokens = self.token_counter.count_tokens(response, model)
+            
+            cost_info = calculate_cost(input_tokens, output_tokens, model)
+            cost_info.update({
+                'api_provided': False,
+                'estimated': True
+            })
+            
+            return cost_info
+            
+        except Exception as e:
+            logger.error(f"Erro ao calcular custo estimado: {e}")
+            return {
+                'total_cost': 0,
+                'input_cost': 0,
+                'output_cost': 0,
+                'currency': 'USD',
+                'api_provided': False,
+                'estimated': False,
+                'error': str(e)
+            }
+    
+    def _fallback_cost_calculation(self, usage_data: Dict, model: str) -> Dict:
+        """Fallback para cálculo de custo quando API falha"""
+        return {
+            'total_cost': 0,
+            'input_cost': 0,
+            'output_cost': 0,
+            'currency': 'USD',
+            'api_provided': False,
+            'estimated': False,
+            'error': 'Falha no cálculo de custo'
+        }
+    
+    def format_cost_for_display(self, cost_info: Dict) -> Dict:
+        """
+        Formata informações de custo para exibição na interface
+        
+        Args:
+            cost_info: Informações de custo calculadas
+            
+        Returns:
+            Dict formatado para exibição
+        """
+        return {
+            'total_cost_usd': f"${cost_info.get('total_cost', 0):.6f}",
+            'input_cost_usd': f"${cost_info.get('input_cost', 0):.6f}",
+            'output_cost_usd': f"${cost_info.get('output_cost', 0):.6f}",
+            'input_tokens': cost_info.get('input_tokens', 0),
+            'output_tokens': cost_info.get('output_tokens', 0),
+            'total_tokens': cost_info.get('input_tokens', 0) + cost_info.get('output_tokens', 0),
+            'model_name': cost_info.get('model_name', 'Desconhecido'),
+            'api_provided': cost_info.get('api_provided', False),
+            'estimated': cost_info.get('estimated', False),
+            'cache_info': {
+                'creation_tokens': cost_info.get('cache_creation_tokens', 0),
+                'read_tokens': cost_info.get('cache_read_tokens', 0)
+            }
+        }
 
 class TokenCounter:
     """Classe para contar tokens usando tiktoken"""
@@ -65,6 +184,7 @@ class AIManager:
     
     def __init__(self):
         self.token_counter = TokenCounter()
+        self.token_usage_manager = TokenUsageManager()
         
         # Configurar APIs
         self.openai_client = None
@@ -111,16 +231,14 @@ class AIManager:
         try:
             # Importar aqui para evitar dependência circular
             from flask import current_app
-            from flask_sqlalchemy import SQLAlchemy
             
             # Verificar se estamos no contexto da aplicação Flask
-            if current_app:
+            if current_app and current_app.app_context():
                 # Importar dentro do contexto para evitar circular import
                 from app import db, APIKey
                 
-                with current_app.app_context():
-                    api_key = APIKey.query.filter_by(provider=provider, is_active=True).first()
-                    return api_key.api_key if api_key else None
+                api_key = APIKey.query.filter_by(provider=provider, is_active=True).first()
+                return api_key.api_key if api_key else None
             else:
                 # Se não estiver no contexto, tentar ler do .env como fallback
                 import os
@@ -135,7 +253,10 @@ class AIManager:
                     return os.getenv('GOOGLE_API_KEY')
                 return None
         except Exception as e:
-            logger.warning(f"Erro ao obter chave da API {provider} do banco: {e}")
+            # Log apenas se for um erro real, não apenas falta de contexto
+            if "not registered" not in str(e) and "app_context" not in str(e):
+                logger.warning(f"Erro ao obter chave da API {provider} do banco: {e}")
+            
             # Fallback para .env
             try:
                 import os
@@ -165,7 +286,7 @@ class AIManager:
         Gera resposta usando a API apropriada
         
         Returns:
-            Tuple[str, Dict]: (resposta, metadados com contagem de tokens)
+            Tuple[str, Dict]: (resposta, metadados com contagem de tokens e custos)
         """
         tokens_info = {
             'request_tokens': 0,
@@ -173,7 +294,9 @@ class AIManager:
             'total_tokens': 0,
             'model_used': model,
             'success': False,
-            'error': None
+            'error': None,
+            'cost_info': None,
+            'display_info': None
         }
         
         try:
@@ -195,35 +318,76 @@ class AIManager:
                 # Armazenar system message para uso nos métodos de chamada
                 self._current_system_message = system_message
             
-            # Contar tokens após aplicar instruções
+            # Contar tokens após aplicar instruções (fallback)
             tokens_info['request_tokens'] = self.count_request_tokens(prompt, model)
             
             if provider == "openai" and self.openai_client:
-                response = self._call_openai(prompt, model, max_tokens)
-                tokens_info['response_tokens'] = self.count_response_tokens(response, model)
-                tokens_info['total_tokens'] = tokens_info['request_tokens'] + tokens_info['response_tokens']
-                tokens_info['success'] = True
+                response, api_info = self._call_openai(prompt, model, max_tokens)
+                # Usar informações da API se disponíveis, senão usar estimativa
+                if api_info.get('success') and api_info.get('usage_data'):
+                    tokens_info.update(api_info)
+                    tokens_info['request_tokens'] = api_info['usage_data']['input_tokens']
+                    tokens_info['response_tokens'] = api_info['usage_data']['output_tokens']
+                    tokens_info['total_tokens'] = tokens_info['request_tokens'] + tokens_info['response_tokens']
+                else:
+                    # Fallback para estimativa
+                    tokens_info['response_tokens'] = self.count_response_tokens(response, model)
+                    tokens_info['total_tokens'] = tokens_info['request_tokens'] + tokens_info['response_tokens']
+                    tokens_info['success'] = api_info.get('success', False)
+                    tokens_info['error'] = api_info.get('error')
+                    tokens_info['cost_info'] = api_info.get('cost_info')
+                    tokens_info['display_info'] = api_info.get('display_info')
                 return response, tokens_info
                 
             elif provider == "anthropic" and self.anthropic_client:
-                response = self._call_anthropic(prompt, model, max_tokens)
-                tokens_info['response_tokens'] = self.count_response_tokens(response, model)
-                tokens_info['total_tokens'] = tokens_info['request_tokens'] + tokens_info['response_tokens']
-                tokens_info['success'] = True
+                if len(prompt) > 1000:
+                    response, api_info = self._call_anthropic_streaming(prompt, model, max_tokens, system_message)
+                else:
+                    response, api_info = self._call_anthropic(prompt, model, max_tokens)
+                
+                # Usar informações da API se disponíveis, senão usar estimativa
+                if api_info.get('success') and api_info.get('usage_data'):
+                    tokens_info.update(api_info)
+                    tokens_info['request_tokens'] = api_info['usage_data']['input_tokens']
+                    tokens_info['response_tokens'] = api_info['usage_data']['output_tokens']
+                    tokens_info['total_tokens'] = tokens_info['request_tokens'] + tokens_info['response_tokens']
+                else:
+                    # Fallback para estimativa
+                    tokens_info['response_tokens'] = self.count_response_tokens(response, model)
+                    tokens_info['total_tokens'] = tokens_info['request_tokens'] + tokens_info['response_tokens']
+                    tokens_info['success'] = api_info.get('success', False)
+                    tokens_info['error'] = api_info.get('error')
+                    tokens_info['cost_info'] = api_info.get('cost_info')
+                    tokens_info['display_info'] = api_info.get('display_info')
                 return response, tokens_info
                 
             elif provider == "google" and self.google_genai:
-                response = self._call_google(prompt, model, max_tokens)
-                tokens_info['response_tokens'] = self.count_response_tokens(response, model)
-                tokens_info['total_tokens'] = tokens_info['request_tokens'] + tokens_info['response_tokens']
-                tokens_info['success'] = True
+                response, api_info = self._call_google(prompt, model, max_tokens)
+                # Usar informações da API se disponíveis, senão usar estimativa
+                if api_info.get('success') and api_info.get('usage_data'):
+                    tokens_info.update(api_info)
+                    tokens_info['request_tokens'] = api_info['usage_data']['input_tokens']
+                    tokens_info['response_tokens'] = api_info['usage_data']['output_tokens']
+                    tokens_info['total_tokens'] = tokens_info['request_tokens'] + tokens_info['response_tokens']
+                else:
+                    # Fallback para estimativa
+                    tokens_info['response_tokens'] = self.count_response_tokens(response, model)
+                    tokens_info['total_tokens'] = tokens_info['request_tokens'] + tokens_info['response_tokens']
+                    tokens_info['success'] = api_info.get('success', False)
+                    tokens_info['error'] = api_info.get('error')
+                    tokens_info['cost_info'] = api_info.get('cost_info')
+                    tokens_info['display_info'] = api_info.get('display_info')
                 return response, tokens_info
                 
             else:
                 # Fallback: simulação
                 api_name = model_info.get("provider_name", provider)
                 tokens_info['error'] = f"API {api_name} não configurada para modelo {model}"
-                return self._simulate_response(prompt), tokens_info
+                fallback_response = self._simulate_response(prompt)
+                cost_info = self.token_usage_manager.calculate_cost_from_estimation(prompt, fallback_response, model)
+                tokens_info['cost_info'] = cost_info
+                tokens_info['display_info'] = self.token_usage_manager.format_cost_for_display(cost_info)
+                return fallback_response, tokens_info
                 
         except Exception as e:
             tokens_info['error'] = str(e)
@@ -232,8 +396,10 @@ class AIManager:
             tokens_info['total_tokens'] = tokens_info['request_tokens']
             return f"Erro na geração: {str(e)}", tokens_info
     
-    def _call_openai(self, prompt: str, model: str, max_tokens: int) -> str:
-        """Chama API da OpenAI"""
+    def _call_openai(self, prompt: str, model: str, max_tokens: int) -> Tuple[str, Dict]:
+        """Chama API da OpenAI e retorna resposta com informações de tokens"""
+        import json
+        from datetime import datetime
         # Verificar se há system message disponível
         system_message = None
         if hasattr(self, '_current_system_message'):
@@ -273,48 +439,140 @@ class AIManager:
             request_params["max_tokens"] = max_tokens
             logger.debug(f"[OpenAI] Usando max_tokens para modelo {model}")
         
-        response = self.openai_client.chat.completions.create(**request_params)
-        return response.choices[0].message.content
+        try:
+            response = self.openai_client.chat.completions.create(**request_params)
+            
+            # Extrair texto da resposta
+            response_text = response.choices[0].message.content
+            
+            # Capturar dados de uso da API
+            usage_data = {
+                'input_tokens': response.usage.prompt_tokens,
+                'output_tokens': response.usage.completion_tokens,
+                'total_tokens': response.usage.total_tokens
+            }
+            
+            # Salvar resposta completa para debug
+            debug_data = {
+                "timestamp": datetime.now().isoformat(),
+                "provider": "openai",
+                "model": model,
+                "system_message": system_message,
+                "prompt": prompt,
+                "messages": messages,
+                "request_params": request_params,
+                "response_text": response_text,
+                "usage_data": usage_data,
+                "raw_response": str(response)
+            }
+            with open("debug_response_openai.json", "w", encoding="utf-8") as f:
+                json.dump(debug_data, f, indent=2, ensure_ascii=False, default=str)
+            
+            # Calcular custo usando dados da API
+            cost_info = self.token_usage_manager.calculate_cost_from_api_response(usage_data, model)
+            
+            # Formatar para exibição
+            display_info = self.token_usage_manager.format_cost_for_display(cost_info)
+            
+            return response_text, {
+                'success': True,
+                'model_used': model,
+                'provider': 'openai',
+                'usage_data': usage_data,
+                'cost_info': cost_info,
+                'display_info': display_info
+            }
+            
+        except Exception as e:
+            logger.error(f"Erro na API OpenAI: {e}")
+            # Fallback com estimativa
+            fallback_response = f"Erro na API OpenAI: {str(e)}"
+            cost_info = self.token_usage_manager.calculate_cost_from_estimation(prompt, fallback_response, model)
+            display_info = self.token_usage_manager.format_cost_for_display(cost_info)
+            
+            return fallback_response, {
+                'success': False,
+                'model_used': model,
+                'provider': 'openai',
+                'error': str(e),
+                'cost_info': cost_info,
+                'display_info': display_info
+            }
     
-    def _call_anthropic(self, prompt: str, model: str, max_tokens: int) -> str:
-        """Chama API da Anthropic"""
+    def _call_anthropic(self, prompt: str, model: str, max_tokens: int) -> Tuple[str, Dict]:
+        """Chama API da Anthropic e retorna resposta com informações de tokens"""
+        import json
+        from datetime import datetime
         system_message = None
         if hasattr(self, '_current_system_message'):
             system_message = self._current_system_message
             delattr(self, '_current_system_message')
         
-        # Anthropic aceita temperature de 0.0 a 1.0 - usar 0.3 para área jurídica
-        temperature = 0.3
-        
-        # Log do payload para debug
-        logger.debug("[Anthropic] Payload enviado:")
-        logger.debug(pprint.pformat({
-            "model": model,
-            "system": system_message,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": max_tokens,
-            "temperature": temperature
-        }))
-        
-        if len(prompt) > 1000:
-            return self._call_anthropic_streaming(prompt, model, max_tokens, system_message)
-        
-        # Preparar parâmetros da requisição
         request_params = {
             "model": model,
             "max_tokens": max_tokens,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": temperature
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.3
         }
-        
-        # Adicionar system message apenas se existir
         if system_message:
             request_params["system"] = system_message
         
-        response = self.anthropic_client.messages.create(**request_params)
-        return response.content[0].text
+        try:
+            response = self.anthropic_client.messages.create(**request_params)
+            response_text = response.content[0].text if response.content else ""
+            usage_data = None
+            if hasattr(response, 'usage') and response.usage:
+                usage_data = {
+                    'input_tokens': response.usage.input_tokens,
+                    'output_tokens': response.usage.output_tokens,
+                    'total_tokens': response.usage.input_tokens + response.usage.output_tokens
+                }
+            
+            # Salvar resposta completa para debug
+            debug_data = {
+                "timestamp": datetime.now().isoformat(),
+                "provider": "anthropic",
+                "model": model,
+                "system_message": system_message,
+                "prompt": prompt,
+                "request_params": request_params,
+                "response_text": response_text,
+                "usage_data": usage_data,
+                "raw_response": str(response)
+            }
+            with open("debug_response_anthropic.json", "w", encoding="utf-8") as f:
+                json.dump(debug_data, f, indent=2, ensure_ascii=False, default=str)
+            
+            # Calcular custo usando dados da API se disponíveis
+            cost_info = self.token_usage_manager.calculate_cost_from_api_response(usage_data, model) if usage_data else self.token_usage_manager.calculate_cost_from_estimation(prompt, response_text, model)
+            display_info = self.token_usage_manager.format_cost_for_display(cost_info)
+            
+            return response_text, {
+                'success': True,
+                'model_used': model,
+                'provider': 'anthropic',
+                'usage_data': usage_data,
+                'cost_info': cost_info,
+                'display_info': display_info
+            }
+        except Exception as e:
+            logger.error(f"Erro na API Anthropic: {e}")
+            fallback_response = f"Erro na API Anthropic: {str(e)}"
+            cost_info = self.token_usage_manager.calculate_cost_from_estimation(prompt, fallback_response, model)
+            display_info = self.token_usage_manager.format_cost_for_display(cost_info)
+            return fallback_response, {
+                'success': False,
+                'model_used': model,
+                'provider': 'anthropic',
+                'error': str(e),
+                'cost_info': cost_info,
+                'display_info': display_info
+            }
     
-    def _call_anthropic_streaming(self, prompt: str, model: str, max_tokens: int, system_message: str = None) -> str:
+    def _call_anthropic_streaming(self, prompt: str, model: str, max_tokens: int, system_message: str = None) -> Tuple[str, Dict]:
+        """Chama API da Anthropic em modo streaming e retorna resposta com informações de tokens"""
         # Anthropic aceita temperature de 0.0 a 1.0 - usar 0.3 para área jurídica
         temperature = 0.3
         
@@ -341,15 +599,61 @@ class AIManager:
         if system_message:
             request_params["system"] = system_message
         
-        response = self.anthropic_client.messages.create(**request_params)
-        full_response = ""
-        for chunk in response:
-            if chunk.type == "content_block_delta":
-                full_response += chunk.delta.text
-        return full_response
+        try:
+            response = self.anthropic_client.messages.create(**request_params)
+            full_response = ""
+            usage_data = None
+            
+            for chunk in response:
+                if chunk.type == "content_block_delta":
+                    full_response += chunk.delta.text
+                elif chunk.type == "message_stop":
+                    # Capturar dados de uso no evento final
+                    if hasattr(chunk, 'usage') and chunk.usage:
+                        usage_data = {
+                            'input_tokens': chunk.usage.input_tokens,
+                            'output_tokens': chunk.usage.output_tokens,
+                            'cache_creation_input_tokens': getattr(chunk.usage, 'cache_creation_input_tokens', 0),
+                            'cache_read_input_tokens': getattr(chunk.usage, 'cache_read_input_tokens', 0)
+                        }
+            
+            # Calcular custo usando dados da API se disponíveis
+            if usage_data:
+                cost_info = self.token_usage_manager.calculate_cost_from_api_response(usage_data, model)
+            else:
+                # Fallback para estimativa
+                cost_info = self.token_usage_manager.calculate_cost_from_estimation(prompt, full_response, model)
+            
+            # Formatar para exibição
+            display_info = self.token_usage_manager.format_cost_for_display(cost_info)
+            
+            return full_response, {
+                'success': True,
+                'model_used': model,
+                'provider': 'anthropic',
+                'usage_data': usage_data,
+                'cost_info': cost_info,
+                'display_info': display_info
+            }
+            
+        except Exception as e:
+            logger.error(f"Erro na API Anthropic (streaming): {e}")
+            # Fallback com estimativa
+            fallback_response = f"Erro na API Anthropic: {str(e)}"
+            cost_info = self.token_usage_manager.calculate_cost_from_estimation(prompt, fallback_response, model)
+            display_info = self.token_usage_manager.format_cost_for_display(cost_info)
+            
+            return fallback_response, {
+                'success': False,
+                'model_used': model,
+                'provider': 'anthropic',
+                'error': str(e),
+                'cost_info': cost_info,
+                'display_info': display_info
+            }
     
-    def _call_google(self, prompt: str, model: str, max_tokens: int) -> str:
-        """Chama API do Google"""
+    def _call_google(self, prompt: str, model: str, max_tokens: int) -> Tuple[str, Dict]:
+        """Chama API do Google e retorna resposta com informações de tokens"""
         system_message = None
         if hasattr(self, '_current_system_message'):
             system_message = self._current_system_message
@@ -375,27 +679,133 @@ class AIManager:
             "temperature": temperature
         }))
         
-        # Usar system_instruction se disponível, senão concatenar no prompt
-        if system_message:
-            try:
+        try:
+            # Usar system_instruction se disponível, senão concatenar no prompt
+            if system_message:
+                try:
+                    response = model_obj.generate_content(
+                        prompt,
+                        generation_config=generation_config,
+                        system_instruction=system_message
+                    )
+                except TypeError:
+                    # Fallback: concatenar system message no prompt
+                    full_prompt = f"{system_message}\n\n{prompt}"
+                    response = model_obj.generate_content(
+                        full_prompt,
+                        generation_config=generation_config
+                    )
+            else:
                 response = model_obj.generate_content(
                     prompt,
-                    generation_config=generation_config,
-                    system_instruction=system_message
-                )
-            except TypeError:
-                # Fallback: concatenar system message no prompt
-                full_prompt = f"{system_message}\n\n{prompt}"
-                response = model_obj.generate_content(
-                    full_prompt,
                     generation_config=generation_config
                 )
-        else:
-            response = model_obj.generate_content(
-                prompt,
-                generation_config=generation_config
-            )
-        return response.text
+            
+            # Extrair texto da resposta de forma robusta
+            response_text = ""
+            if hasattr(response, 'candidates') and response.candidates:
+                candidate = response.candidates[0]
+                # Verificar se o candidato foi bem-sucedido
+                if hasattr(candidate, 'finish_reason') and candidate.finish_reason == 1:  # STOP = 1
+                    if hasattr(candidate, 'content') and candidate.content:
+                        if hasattr(candidate.content, 'parts') and candidate.content.parts:
+                            for part in candidate.content.parts:
+                                if hasattr(part, 'text'):
+                                    response_text += part.text
+                
+                # Se não conseguiu extrair por partes, tentar response.text
+                if not response_text:
+                    try:
+                        response_text = response.text
+                    except Exception as e:
+                        logger.warning(f"[Google Gemini] Erro ao extrair texto: {e}")
+                        response_text = "Erro ao extrair resposta da API"
+            else:
+                response_text = "Nenhum candidato retornado pela API"
+            
+            # Capturar dados de uso da API Google Gemini
+            usage_data = None
+            if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                usage_metadata = response.usage_metadata
+                usage_data = {
+                    'input_tokens': getattr(usage_metadata, 'prompt_token_count', 0),
+                    'output_tokens': getattr(usage_metadata, 'candidates_token_count', 0),
+                    'total_tokens': getattr(usage_metadata, 'total_token_count', 0),
+                    'cached_content_tokens': getattr(usage_metadata, 'cached_content_token_count', 0)
+                }
+                
+                # Log das informações de tokens para debug
+                logger.debug(f"[Google Gemini] Tokens capturados da API:")
+                logger.debug(f"  Input: {usage_data['input_tokens']}")
+                logger.debug(f"  Output: {usage_data['output_tokens']}")
+                logger.debug(f"  Total: {usage_data['total_tokens']}")
+                logger.debug(f"  Cached: {usage_data['cached_content_tokens']}")
+            
+            # Salvar resposta completa para debug
+            debug_data = {
+                "timestamp": datetime.now().isoformat(),
+                "provider": "google",
+                "model": model,
+                "system_message": system_message,
+                "prompt": prompt,
+                "max_tokens": max_tokens,
+                "request_params": {
+                    "model": model,
+                    "system_message": system_message,
+                    "prompt": prompt,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature
+                },
+                "response_text": response_text,
+                "usage_data": usage_data,
+                "raw_response": str(response)
+            }
+            with open("debug_response_google.json", "w", encoding="utf-8") as f:
+                json.dump(debug_data, f, indent=2, ensure_ascii=False, default=str)
+            
+            # Se não conseguiu capturar da API, usar estimativa
+            if not usage_data:
+                logger.warning("[Google Gemini] Não foi possível capturar tokens da API, usando estimativa")
+                usage_data = {
+                    'input_tokens': self.token_counter.count_tokens(prompt, model),
+                    'output_tokens': self.token_counter.count_tokens(response_text, model),
+                    'total_tokens': 0,
+                    'cached_content_tokens': 0
+                }
+                usage_data['total_tokens'] = usage_data['input_tokens'] + usage_data['output_tokens']
+            
+            # Calcular custo usando dados da API se disponíveis
+            cost_info = self.token_usage_manager.calculate_cost_from_api_response(usage_data, model)
+            cost_info['api_provided'] = usage_data is not None and usage_data.get('input_tokens', 0) > 0
+            cost_info['estimated'] = not cost_info['api_provided']
+            
+            # Formatar para exibição
+            display_info = self.token_usage_manager.format_cost_for_display(cost_info)
+            
+            return response_text, {
+                'success': True,
+                'model_used': model,
+                'provider': 'google',
+                'usage_data': usage_data,
+                'cost_info': cost_info,
+                'display_info': display_info
+            }
+            
+        except Exception as e:
+            logger.error(f"Erro na API Google: {e}")
+            # Fallback com estimativa
+            fallback_response = f"Erro na API Google: {str(e)}"
+            cost_info = self.token_usage_manager.calculate_cost_from_estimation(prompt, fallback_response, model)
+            display_info = self.token_usage_manager.format_cost_for_display(cost_info)
+            
+            return fallback_response, {
+                'success': False,
+                'model_used': model,
+                'provider': 'google',
+                'error': str(e),
+                'cost_info': cost_info,
+                'display_info': display_info
+            }
     
     def _simulate_response(self, prompt: str) -> str:
         """Simula resposta quando API não está disponível"""
@@ -427,19 +837,34 @@ Data: {datetime.now().strftime('%d/%m/%Y')}
         return get_model_info(model)
 
     def _get_model_instructions(self, model_id: str) -> str:
-        """Obtém as instruções específicas de um modelo sem dependência do app.py"""
+        """Obtém as instruções específicas de um modelo ou, se não houver, as gerais"""
         try:
             # Verificar se estamos no contexto da aplicação Flask
             from flask import current_app
-            if current_app:
-                # Importar dentro do contexto para evitar circular import
-                from app import db, ModelInstructions
+            from sqlalchemy import text
+            if current_app and current_app.app_context():
+                # Usar query SQL direta para evitar conflitos de SQLAlchemy
+                db = current_app.extensions['sqlalchemy'].db
                 
-                with current_app.app_context():
-                    instructions = ModelInstructions.query.filter_by(model_id=model_id, is_active=True).first()
-                    return instructions.instructions if instructions else ""
+                # Buscar instrução específica do modelo
+                result = db.session.execute(
+                    text("SELECT instructions FROM model_instructions WHERE model_id = :model_id AND is_active = 1"),
+                    {"model_id": model_id}
+                ).fetchone()
+                
+                if result:
+                    return result[0]
+                
+                # Se não encontrar, buscar instrução geral
+                result = db.session.execute(
+                    text("SELECT instructions FROM general_instructions LIMIT 1")
+                ).fetchone()
+                
+                if result:
+                    return result[0]
+                
+                return ""
             else:
-                # Se não estiver no contexto, retornar vazio
                 return ""
         except Exception as e:
             logger.warning(f"Erro ao obter instruções do modelo {model_id}: {e}")
