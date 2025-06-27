@@ -300,4 +300,10 @@ Thumbs.db
 # Project specific
 instance/
 *.db
-.env 
+.env
+
+# DIRIA specific
+backups/
+*.db
+*.sqlite
+*.sqlite3 

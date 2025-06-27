@@ -113,29 +113,135 @@ if [ ! -f "instance/diria.db" ]; then
     echo "📝 Inicializando com dados padrão..."
     python -c "from app import init_db; init_db(); print('✅ Dados padrão criados!')"
     
-    # Executar migração das instruções
-    echo "🔄 Executando migração das instruções..."
-    python migrate_instructions.py
+    # Executar migração consolidada
+    echo "🔄 Executando migração consolidada..."
+    python migrate_db.py
     
     echo "✅ Banco de dados inicializado completamente!"
 else
-    echo "🔄 Banco existente - executando migrações..."
+    echo "🔄 Banco existente - executando backup e migração..."
     
-    # Executar migração de tokens
-    python migrate_db.py
+    # CRIAR BACKUP AUTOMÁTICO DO BANCO
+    echo "💾 Criando backup do banco de dados..."
+    BACKUP_DIR="backups"
+    mkdir -p "$BACKUP_DIR"
     
-    # Executar migração das instruções
-    python migrate_instructions.py
+    # Nome do backup com timestamp
+    TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+    BACKUP_FILE="$BACKUP_DIR/diria_backup_${TIMESTAMP}.db"
     
-    # Executar migração das chaves de API (se existir)
-    if [ -f "migrate_api_keys.py" ]; then
-        echo "🔑 Executando migração das chaves de API..."
-        python migrate_api_keys.py
+    # Copiar banco de dados
+    cp "instance/diria.db" "$BACKUP_FILE"
+    
+    if [ $? -eq 0 ]; then
+        echo "✅ Backup criado: $BACKUP_FILE"
+        
+        # SISTEMA INTELIGENTE DE LIMPEZA DE BACKUPS
+        echo "🧹 Gerenciando backups antigos..."
+        
+        # Configurações de retenção
+        MAX_BACKUPS=5          # Máximo de backups por tipo
+        MAX_DAILY_BACKUPS=7    # Máximo de backups diários
+        MAX_SIZE_MB=100        # Tamanho máximo total em MB
+        
+        # Função para calcular tamanho total dos backups
+        calculate_backup_size() {
+            local total_size=0
+            for backup in "$BACKUP_DIR"/diria_backup_*.db; do
+                if [ -f "$backup" ]; then
+                    local size=$(stat -c%s "$backup" 2>/dev/null || stat -f%z "$backup" 2>/dev/null || echo 0)
+                    total_size=$((total_size + size))
+                fi
+            done
+            echo $((total_size / 1024 / 1024))  # Converter para MB
+        }
+        
+        # 1. Limpeza por quantidade (manter apenas os últimos N)
+        echo "  📊 Limpeza por quantidade (mantendo últimos $MAX_BACKUPS)..."
+        local backup_count=$(ls -1 "$BACKUP_DIR"/diria_backup_*.db 2>/dev/null | wc -l)
+        if [ "$backup_count" -gt "$MAX_BACKUPS" ]; then
+            local to_remove=$((backup_count - MAX_BACKUPS))
+            ls -t "$BACKUP_DIR"/diria_backup_*.db 2>/dev/null | tail -n "$to_remove" | xargs -r rm
+            echo "    ✅ Removidos $to_remove backup(s) antigo(s)"
+        else
+            echo "    ℹ️  Quantidade dentro do limite ($backup_count/$MAX_BACKUPS)"
+        fi
+        
+        # 2. Limpeza por data (manter apenas backups dos últimos N dias)
+        echo "  📅 Limpeza por data (mantendo últimos $MAX_DAILY_BACKUPS dias)..."
+        local cutoff_date=$(date -d "$MAX_DAILY_BACKUPS days ago" +"%Y%m%d" 2>/dev/null || date -v-${MAX_DAILY_BACKUPS}d +"%Y%m%d" 2>/dev/null || echo "00000000")
+        
+        for backup in "$BACKUP_DIR"/diria_backup_*.db; do
+            if [ -f "$backup" ]; then
+                local backup_date=$(echo "$backup" | grep -o '[0-9]\{8\}' | head -1)
+                if [ "$backup_date" != "" ] && [ "$backup_date" -lt "$cutoff_date" ]; then
+                    rm "$backup"
+                    echo "    🗑️  Removido backup antigo: $(basename "$backup")"
+                fi
+            fi
+        done
+        
+        # 3. Limpeza por tamanho (se exceder limite)
+        echo "  💾 Verificando tamanho total dos backups..."
+        local total_size=$(calculate_backup_size)
+        if [ "$total_size" -gt "$MAX_SIZE_MB" ]; then
+            echo "    ⚠️  Tamanho total: ${total_size}MB (limite: ${MAX_SIZE_MB}MB)"
+            echo "    🗑️  Removendo backups mais antigos até atingir o limite..."
+            
+            while [ "$total_size" -gt "$MAX_SIZE_MB" ] && [ "$(ls -1 "$BACKUP_DIR"/diria_backup_*.db 2>/dev/null | wc -l)" -gt 1 ]; do
+                local oldest_backup=$(ls -t "$BACKUP_DIR"/diria_backup_*.db 2>/dev/null | tail -1)
+                if [ -f "$oldest_backup" ]; then
+                    local backup_size=$(stat -c%s "$oldest_backup" 2>/dev/null || stat -f%z "$oldest_backup" 2>/dev/null || echo 0)
+                    local backup_size_mb=$((backup_size / 1024 / 1024))
+                    rm "$oldest_backup"
+                    total_size=$((total_size - backup_size_mb))
+                    echo "      🗑️  Removido: $(basename "$oldest_backup") (${backup_size_mb}MB)"
+                else
+                    break
+                fi
+            done
+        else
+            echo "    ✅ Tamanho total: ${total_size}MB (dentro do limite de ${MAX_SIZE_MB}MB)"
+        fi
+        
+        # 4. Relatório final
+        local final_count=$(ls -1 "$BACKUP_DIR"/diria_backup_*.db 2>/dev/null | wc -l)
+        local final_size=$(calculate_backup_size)
+        echo "  📋 Relatório final: $final_count backup(s), ${final_size}MB total"
+        echo "✅ Gerenciamento de backups concluído"
     else
-        echo "ℹ️  Script de migração de chaves não encontrado"
+        echo "❌ ERRO: Falha ao criar backup do banco de dados!"
+        echo "⚠️  ABORTANDO DEPLOY por segurança!"
+        exit 1
     fi
     
-    echo "✅ Migrações concluídas!"
+    # Executar migração consolidada (inclui todas as migrações necessárias)
+    echo "🔄 Executando migração consolidada..."
+    python migrate_db.py
+    
+    if [ $? -eq 0 ]; then
+        echo "✅ Migração consolidada concluída!"
+        
+        # Verificar integridade do banco após migração
+        echo "🔍 Verificando integridade do banco de dados..."
+        python verify_db_integrity.py
+        
+        if [ $? -eq 0 ]; then
+            echo "✅ Integridade do banco verificada com sucesso!"
+        else
+            echo "❌ ERRO: Problemas de integridade detectados no banco!"
+            echo "🔄 Restaurando backup..."
+            cp "$BACKUP_FILE" "instance/diria.db"
+            echo "✅ Backup restaurado. Verifique os logs e tente novamente."
+            exit 1
+        fi
+    else
+        echo "❌ ERRO: Falha na migração do banco de dados!"
+        echo "🔄 Restaurando backup..."
+        cp "$BACKUP_FILE" "instance/diria.db"
+        echo "✅ Backup restaurado. Verifique os logs e tente novamente."
+        exit 1
+    fi
 fi
 
 # Configurar permissões (opcional)

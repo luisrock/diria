@@ -137,9 +137,22 @@ python check_users.py
 python test_api_keys.py
 ```
 
-### Migrar Banco de Dados
+### Migrar Banco de Dados (CONSOLIDADO)
 ```bash
+# Executar todas as migrações
 python migrate_db.py
+
+# Verificar status das migrações
+python migrate_db.py status
+```
+
+### Verificar Integridade do Banco
+```bash
+# Verificação completa
+python verify_db_integrity.py
+
+# Informações do banco
+python verify_db_integrity.py info
 ```
 
 ### Gerenciar Modelos de IA
@@ -282,4 +295,43 @@ Para suporte, abra uma issue no GitHub ou entre em contato através do email do 
 
 ---
 
-**Desenvolvido com ❤️ para facilitar a criação de minutas judiciais** 
+**Desenvolvido com ❤️ para facilitar a criação de minutas judiciais**
+
+## 🔒 Segurança do Banco de Dados
+
+### ✅ **Proteções Implementadas:**
+
+#### **1. Backup Automático**
+- **Antes de cada deploy**: Backup automático com timestamp
+- **Localização**: `backups/diria_backup_YYYYMMDD_HHMMSS.db`
+- **Retenção**: Mantém os últimos 5 backups automaticamente
+- **Restauração**: Automática em caso de falha na migração
+
+#### **2. Verificação de Integridade**
+- **Após migração**: Verificação automática da integridade do SQLite
+- **Tabelas essenciais**: Confirmação de que todas as tabelas foram criadas
+- **Dados críticos**: Verificação de usuários, prompts, modelos, etc.
+- **Rollback automático**: Restaura backup se problemas forem detectados
+
+#### **3. Migrações Seguras**
+- **Só adiciona**: Nunca remove dados existentes
+- **Colunas opcionais**: Novas colunas com valores padrão
+- **Tabelas novas**: Criação de tabelas sem afetar existentes
+- **Transações**: Todas as operações são transacionais
+
+### 🛡️ **Garantias de Segurança:**
+
+1. **Nunca perde dados**: Backup automático antes de qualquer alteração
+2. **Rollback automático**: Se algo der errado, restaura automaticamente
+3. **Verificação dupla**: Integridade verificada após migração
+4. **Logs detalhados**: Todas as operações são registradas
+5. **Aborta em caso de erro**: Deploy para se houver problemas
+
+### 📋 **Em Caso de Problemas:**
+
+Se o deploy falhar, você pode:
+
+1. **Verificar logs**: `tail -f logs/error.log`
+2. **Restaurar manualmente**: `cp backups/diria_backup_*.db instance/diria.db`
+3. **Verificar integridade**: `python verify_db_integrity.py`
+4. **Contatar suporte**: Com os logs de erro 

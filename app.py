@@ -118,6 +118,16 @@ class DollarRate(db.Model):
     def __repr__(self):
         return f'<DollarRate {self.date}: {self.rate}>'
 
+class ModelStatus(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    model_id = db.Column(db.String(100), unique=True, nullable=False)
+    is_enabled = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
+    
+    def __repr__(self):
+        return f'<ModelStatus {self.model_id}: {"Enabled" if self.is_enabled else "Disabled"}>'
+
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
@@ -207,18 +217,59 @@ def get_dollar_rate():
             
             return rate
         else:
-            raise ValueError("Resposta da API não contém dados válidos")
-            
+            # Fallback para cotação fixa se API falhar
+            return 5.5
     except Exception as e:
-        # Em caso de erro, usar a cotação mais recente disponível
-        logger.warning(f"Erro ao buscar cotação do dólar: {e}")
-        
-        latest_rate = DollarRate.query.order_by(DollarRate.date.desc()).first()
-        if latest_rate:
-            return latest_rate.rate
-        else:
-            # Fallback: usar cotação fixa se não houver nenhuma
-            return 5.50
+        print(f"Erro ao buscar cotação do dólar: {e}")
+        # Fallback para cotação fixa
+        return 5.5
+
+def get_model_status(model_id):
+    """Obtém o status de um modelo específico"""
+    status = ModelStatus.query.filter_by(model_id=model_id).first()
+    return status.is_enabled if status else True  # Por padrão, habilitado
+
+def set_model_status(model_id, is_enabled):
+    """Define o status de um modelo"""
+    status = ModelStatus.query.filter_by(model_id=model_id).first()
+    if status:
+        status.is_enabled = is_enabled
+        status.updated_at = datetime.now(timezone.utc)
+    else:
+        status = ModelStatus(model_id=model_id, is_enabled=is_enabled)
+        db.session.add(status)
+    db.session.commit()
+
+def get_enabled_models():
+    """Obtém lista de modelos habilitados"""
+    from models_config import get_all_models
+    all_models = get_all_models()
+    enabled_models = []
+    
+    for model_id in all_models:
+        if get_model_status(model_id):
+            enabled_models.append(model_id)
+    
+    return enabled_models
+
+def get_all_models_with_status():
+    """Obtém todos os modelos com seus status"""
+    from models_config import get_all_models, get_model_info
+    
+    models = []
+    for model_id in get_all_models():
+        info = get_model_info(model_id)
+        if info:
+            is_enabled = get_model_status(model_id)
+            models.append({
+                'id': model_id,
+                'name': f"{info['display_name']} ({info['provider_name']})",
+                'provider': info['provider_name'],
+                'description': info['description'],
+                'is_enabled': is_enabled
+            })
+    
+    return models
 
 def format_cost_for_user(cost_usd):
     """
@@ -378,6 +429,10 @@ def generate_minuta():
         if not ai_model_id:
             return jsonify({'error': 'Modelo de IA não selecionado.'}), 400
         
+        # Verificar se o modelo está habilitado
+        if not get_model_status(ai_model_id):
+            return jsonify({'error': f'Modelo {ai_model_id} não está habilitado no sistema.'}), 400
+        
         # Preparar dados para o prompt
         pecas_texto = ""
         for peca in data.get('pecas_processuais', []):
@@ -470,6 +525,10 @@ def adjust_minuta():
         ai_model_id = data.get('model_id')
         if not ai_model_id:
             return jsonify({'error': 'Modelo de IA não selecionado.'}), 400
+        
+        # Verificar se o modelo está habilitado
+        if not get_model_status(ai_model_id):
+            return jsonify({'error': f'Modelo {ai_model_id} não está habilitado no sistema.'}), 400
         
         # Obter o prompt original (usar o primeiro prompt disponível ou default)
         prompt = Prompt.query.filter_by(is_default=True).first()
@@ -666,14 +725,18 @@ def admin_prompts():
             ai_model = request.form.get('ai_model')
             is_default = request.form.get('is_default') == 'on'
             
-            if is_default:
-                # Desmarcar outros prompts como default
-                Prompt.query.update({'is_default': False})
-            
-            prompt = Prompt(name=name, content=content, ai_model=ai_model, is_default=is_default)
-            db.session.add(prompt)
-            db.session.commit()
-            flash('Prompt criado com sucesso.', 'success')
+            # Verificar se o modelo está habilitado
+            if not get_model_status(ai_model):
+                flash(f'Erro: Modelo {ai_model} não está habilitado no sistema.', 'error')
+            else:
+                if is_default:
+                    # Desmarcar outros prompts como default
+                    Prompt.query.update({'is_default': False})
+                
+                prompt = Prompt(name=name, content=content, ai_model=ai_model, is_default=is_default)
+                db.session.add(prompt)
+                db.session.commit()
+                flash('Prompt criado com sucesso.', 'success')
             
         elif action == 'delete':
             prompt_id = request.form.get('prompt_id')
@@ -693,17 +756,21 @@ def admin_prompts():
             if prompt_id:
                 prompt = db.session.get(Prompt, int(prompt_id))
                 if prompt:
-                    if is_default:
-                        # Desmarcar outros prompts como default
-                        Prompt.query.update({'is_default': False})
-                    
-                    prompt.name = name
-                    prompt.content = content
-                    prompt.ai_model = ai_model
-                    prompt.is_default = is_default
-                    
-                    db.session.commit()
-                    flash('Prompt atualizado com sucesso.', 'success')
+                    # Verificar se o modelo está habilitado
+                    if not get_model_status(ai_model):
+                        flash(f'Erro: Modelo {ai_model} não está habilitado no sistema.', 'error')
+                    else:
+                        if is_default:
+                            # Desmarcar outros prompts como default
+                            Prompt.query.update({'is_default': False})
+                        
+                        prompt.name = name
+                        prompt.content = content
+                        prompt.ai_model = ai_model
+                        prompt.is_default = is_default
+                        
+                        db.session.commit()
+                        flash('Prompt atualizado com sucesso.', 'success')
                 else:
                     flash('Prompt não encontrado.', 'error')
             else:
@@ -711,12 +778,12 @@ def admin_prompts():
     
     prompts = Prompt.query.all()
     
-    # Obter modelos atuais do sistema
-    available_models = get_all_models()
+    # Obter apenas modelos habilitados do sistema
+    enabled_models = get_enabled_models()
     
     # Organizar modelos por fabricante
     models_by_provider = {}
-    for model_id in available_models:
+    for model_id in enabled_models:
         model_info = get_model_info(model_id)
         if model_info:
             provider = model_info["provider"]
@@ -887,11 +954,13 @@ def get_default_model():
 
 @app.route('/api/available_models')
 def get_available_models():
-    """Retorna lista de modelos disponíveis"""
-    from models_config import get_all_models, get_model_info
+    """Retorna lista de modelos disponíveis (apenas habilitados)"""
+    from models_config import get_model_info
     
     models = []
-    for model_id in get_all_models():
+    enabled_models = get_enabled_models()
+    
+    for model_id in enabled_models:
         info = get_model_info(model_id)
         if info:
             models.append({
@@ -920,22 +989,23 @@ def admin_config():
                 flash('Modelo padrão atualizado com sucesso.', 'success')
             else:
                 flash('Modelo padrão é obrigatório.', 'error')
+        
+        elif action == 'toggle_model':
+            model_id = request.form.get('model_id')
+            is_enabled = request.form.get('is_enabled') == 'true'
+            
+            if model_id:
+                set_model_status(model_id, is_enabled)
+                status_text = "habilitado" if is_enabled else "desabilitado"
+                flash(f'Modelo {model_id} {status_text} com sucesso.', 'success')
+            else:
+                flash('ID do modelo é obrigatório.', 'error')
     
     # Obter configurações atuais
     current_default_model = get_default_ai_model()
     
-    # Obter modelos disponíveis
-    from models_config import get_all_models, get_model_info
-    available_models = []
-    for model_id in get_all_models():
-        info = get_model_info(model_id)
-        if info:
-            available_models.append({
-                'id': model_id,
-                'name': f"{info['display_name']} ({info['provider_name']})",
-                'provider': info['provider_name'],
-                'description': info['description']
-            })
+    # Obter modelos disponíveis com status
+    available_models = get_all_models_with_status()
     
     return render_template('admin_config.html', 
                          current_default_model=current_default_model,
@@ -984,7 +1054,7 @@ def admin_instructions():
     # Obter dados para exibição
     general_instructions = get_general_instructions()
     model_instructions = ModelInstructions.query.all()
-    available_models = get_all_models()
+    available_models = get_enabled_models()
     
     return render_template('admin_instructions.html', 
                          general_instructions=general_instructions,
