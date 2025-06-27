@@ -327,11 +327,19 @@ let currentFormData = null; // Dados do formulário original
 
 // Inicializar CKEditor quando a página carregar
 document.addEventListener('DOMContentLoaded', function() {
+    // Limpar qualquer backup existente no localStorage
+    try {
+        localStorage.removeItem('diria_minuta_backup');
+        localStorage.removeItem('diria_minuta_backup_time');
+        console.log('Backup antigo removido do localStorage');
+    } catch (e) {
+        console.warn('Erro ao limpar backup antigo:', e);
+    }
+    
     initializeEditor();
     loadAIModels();
     
-    // Verificar se há backup disponível
-    checkForBackup();
+    // Remover a verificação de backup daqui - sistema foi eliminado
 });
 
 function initializeEditor() {
@@ -367,6 +375,8 @@ function initializeEditor() {
             editor = newEditor;
             console.log('CKEditor inicializado com sucesso');
             
+            // Remover verificação de backup - sistema será eliminado
+            
             // Adicionar listener para mudanças no editor
             editor.model.document.on('change:data', () => {
                 // Verificar se o conteúdo foi modificado pelo usuário (não pela IA)
@@ -379,13 +389,7 @@ function initializeEditor() {
                         copyBtn.innerHTML = '<i class="fas fa-edit mr-1"></i>Copiar (Editado)';
                     }
                     
-                    // Salvar no localStorage como backup
-                    try {
-                        localStorage.setItem('diria_minuta_backup', currentContent);
-                        localStorage.setItem('diria_minuta_backup_time', new Date().toISOString());
-                    } catch (e) {
-                        console.warn('Não foi possível salvar backup no localStorage:', e);
-                    }
+                    // Sistema de backup foi removido - não há mais salvamento automático
                 }
             });
         })
@@ -393,77 +397,6 @@ function initializeEditor() {
             console.error('Erro ao inicializar CKEditor:', error);
             showNotification('Erro ao carregar o editor. Recarregue a página.', 'error');
         });
-}
-
-function checkForBackup() {
-    try {
-        const backupContent = localStorage.getItem('diria_minuta_backup');
-        const backupTime = localStorage.getItem('diria_minuta_backup_time');
-        
-        if (backupContent && backupTime) {
-            const backupDate = new Date(backupTime);
-            const now = new Date();
-            const hoursDiff = (now - backupDate) / (1000 * 60 * 60);
-            
-            // Mostrar notificação se o backup for recente (menos de 24 horas)
-            if (hoursDiff < 24) {
-                showNotification(
-                    `Há um backup disponível de ${backupDate.toLocaleString()}. Clique em "Restaurar" para recuperar.`,
-                    'info'
-                );
-                
-                // Adicionar botão de restaurar apenas se não existir
-                const existingRestoreBtn = document.querySelector('#restoreBackupBtn');
-                if (!existingRestoreBtn) {
-                    const restoreBtn = document.createElement('button');
-                    restoreBtn.id = 'restoreBackupBtn';
-                    restoreBtn.onclick = restoreBackup;
-                    restoreBtn.className = 'inline-flex items-center px-3 py-1 border border-blue-300 shadow-sm text-sm font-medium rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 ml-2';
-                    restoreBtn.innerHTML = '<i class="fas fa-undo mr-1"></i>Restaurar';
-                    
-                    const resultadoDiv = document.getElementById('resultado');
-                    if (resultadoDiv) {
-                        const headerDiv = resultadoDiv.querySelector('.flex.items-center.justify-between');
-                        if (headerDiv) {
-                            const buttonContainer = headerDiv.querySelector('.flex.space-x-2');
-                            if (buttonContainer) {
-                                buttonContainer.appendChild(restoreBtn);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    } catch (e) {
-        console.warn('Erro ao verificar backup:', e);
-    }
-}
-
-function restoreBackup() {
-    try {
-        const backupContent = localStorage.getItem('diria_minuta_backup');
-        if (backupContent && editor) {
-            editor.setData(backupContent);
-            showNotification('Backup restaurado com sucesso!', 'success');
-            
-            // Mostrar o resultado se estiver oculto
-            document.getElementById('resultado').classList.remove('hidden');
-            
-            // Scroll para o resultado
-            document.getElementById('resultado').scrollIntoView({ behavior: 'smooth' });
-            
-            // Remover o botão de restaurar após o uso
-            const restoreBtn = document.getElementById('restoreBackupBtn');
-            if (restoreBtn) {
-                restoreBtn.remove();
-            }
-        } else {
-            showNotification('Nenhum backup disponível para restaurar!', 'error');
-        }
-    } catch (e) {
-        console.error('Erro ao restaurar backup:', e);
-        showNotification('Erro ao restaurar backup!', 'error');
-    }
 }
 
 // Função para limpar número do processo (apenas números)
@@ -772,6 +705,8 @@ document.getElementById('minutaForm').addEventListener('submit', async function(
             
             // Mostrar resultado
             document.getElementById('resultado').classList.remove('hidden');
+            
+            // Remover verificação de backup - sistema será eliminado
             
             // Mostrar informações de tokens se disponíveis
             if (result.tokens_info) {
