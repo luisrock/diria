@@ -35,6 +35,22 @@ def create_debug_table():
         print("✅ Tabela debug_request já existe")
         return False
 
+def create_eproc_credentials_table():
+    """Cria a tabela EprocCredentials se não existir"""
+    if not check_table_exists('eproc_credentials'):
+        print("🔄 Criando tabela eproc_credentials...")
+        
+        # Importar o modelo
+        from app import EprocCredentials
+        
+        # Criar a tabela
+        EprocCredentials.__table__.create(db.engine, checkfirst=True)
+        print("✅ Tabela eproc_credentials criada com sucesso!")
+        return True
+    else:
+        print("✅ Tabela eproc_credentials já existe")
+        return False
+
 def migrate_database():
     """Executa todas as migrações necessárias"""
     print("🚀 Iniciando migração do banco de dados...")
@@ -54,6 +70,7 @@ def migrate_database():
         # Lista de migrações
         migrations = [
             ("Tabela DebugRequest", create_debug_table),
+            ("Tabela EprocCredentials", create_eproc_credentials_table),
         ]
         
         # Executar migrações
