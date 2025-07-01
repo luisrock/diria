@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+
+{% block title %}Debug - Requisições de IA{% endblock %}
+
+{% block extra_head %}
+<style>
+    .debug-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1rem;
+    }
+    
+    .debug-table th,
+    .debug-table td {
+        padding: 0.75rem;
+        text-align: left;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    
+    .debug-table th {
+        background-color: #f8fafc;
+        font-weight: 600;
+        color: #374151;
+    }
+    
+    .debug-table tr:hover {
+        background-color: #f9fafb;
+    }
+    
+    .status-success {
+        color: #059669;
+        font-weight: 600;
+    }
+    
+    .status-error {
+        color: #dc2626;
+        font-weight: 600;
+    }
+    
+    .action-badge {
+        display: inline-block;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.375rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    
+    .action-generate {
+        background-color: #dbeafe;
+        color: #1e40af;
+    }
+    
+    .action-adjust {
+        background-color: #fef3c7;
+        color: #d97706;
+    }
+    
+    .text-truncate {
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    
+    .json-preview {
+        background-color: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.375rem;
+        padding: 0.5rem;
+        font-family: 'Courier New', monospace;
+        font-size: 0.75rem;
+        max-height: 100px;
+        overflow-y: auto;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="bg-white shadow-lg rounded-lg p-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900">
+                    <i class="fas fa-bug mr-3 text-red-600"></i>
+                    Debug - Requisições de IA
+                </h1>
+                <p class="mt-1 text-sm text-gray-600">
+                    Visualize as últimas requisições e respostas das APIs de Inteligência Artificial
+                </p>
+            </div>
+            <div class="flex space-x-3">
+                <a href="{{ url_for('admin_panel') }}" 
+                   class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                    <i class="fas fa-arrow-left mr-2"></i>
+                    Voltar ao Painel
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Estatísticas Rápidas -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div class="bg-white shadow-lg rounded-lg p-6">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <i class="fas fa-paper-plane text-blue-600 text-2xl"></i>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-500">Total de Requisições</p>
+                    <p class="text-2xl font-bold text-gray-900">{{ debug_requests|length }}</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="bg-white shadow-lg rounded-lg p-6">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <i class="fas fa-check-circle text-green-600 text-2xl"></i>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-500">Sucessos</p>
+                    <p class="text-2xl font-bold text-gray-900">
+                        {{ debug_requests|selectattr('success', 'equalto', true)|list|length }}
+                    </p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="bg-white shadow-lg rounded-lg p-6">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <i class="fas fa-exclamation-triangle text-red-600 text-2xl"></i>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-500">Erros</p>
+                    <p class="text-2xl font-bold text-gray-900">
+                        {{ debug_requests|selectattr('success', 'equalto', false)|list|length }}
+                    </p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="bg-white shadow-lg rounded-lg p-6">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <i class="fas fa-users text-purple-600 text-2xl"></i>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-500">Usuários Únicos</p>
+                    <p class="text-2xl font-bold text-gray-900">
+                        {{ debug_requests|map(attribute='user_id')|unique|list|length }}
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabela de Requisições -->
+    <div class="bg-white shadow-lg rounded-lg p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-medium text-gray-900">
+                <i class="fas fa-list mr-2 text-gray-600"></i>
+                Últimas Requisições
+            </h3>
+            <div class="text-sm text-gray-500">
+                Mostrando as {{ debug_requests|length }} requisições mais recentes
+            </div>
+        </div>
+        
+        {% if debug_requests %}
+        <div class="overflow-x-auto">
+            <table class="debug-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Usuário</th>
+                        <th>Ação</th>
+                        <th>Modelo</th>
+                        <th>Status</th>
+                        <th>Data/Hora</th>
+                        <th>Requisição</th>
+                        <th>Resposta</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for request in debug_requests %}
+                    <tr>
+                        <td class="font-mono text-sm">{{ request.id }}</td>
+                        <td>
+                            {% if request.user %}
+                                {{ request.user.name }}
+                                <br>
+                                <span class="text-xs text-gray-500">{{ request.user.email }}</span>
+                            {% else %}
+                                <span class="text-gray-400">Usuário removido</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="action-badge action-{{ request.action.split('_')[0] }}">
+                                {{ request.action.replace('_', ' ').title() }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if request.model_used %}
+                                <span class="font-mono text-sm">{{ request.model_used }}</span>
+                            {% else %}
+                                <span class="text-gray-400">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if request.success %}
+                                <span class="status-success">
+                                    <i class="fas fa-check-circle mr-1"></i>
+                                    Sucesso
+                                </span>
+                            {% else %}
+                                <span class="status-error">
+                                    <i class="fas fa-times-circle mr-1"></i>
+                                    Erro
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="text-sm">
+                                {{ request.created_at.strftime('%d/%m/%Y') }}
+                                <br>
+                                <span class="text-gray-500">{{ request.created_at.strftime('%H:%M:%S') }}</span>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="json-preview text-truncate" title="Clique para ver detalhes">
+                                {{ request.request_data[:100] }}...
+                            </div>
+                        </td>
+                        <td>
+                            <div class="json-preview text-truncate" title="Clique para ver detalhes">
+                                {{ request.response_data[:100] }}...
+                            </div>
+                        </td>
+                        <td>
+                            <a href="{{ url_for('admin_debug_detail', request_id=request.id) }}" 
+                               class="inline-flex items-center px-3 py-1 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50">
+                                <i class="fas fa-eye mr-1"></i>
+                                Detalhes
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-8">
+            <i class="fas fa-inbox text-gray-400 text-4xl mb-4"></i>
+            <p class="text-gray-500">Nenhuma requisição de debug encontrada.</p>
+            <p class="text-sm text-gray-400 mt-2">As requisições aparecerão aqui após serem feitas pelos usuários.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %} 

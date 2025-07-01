@@ -14,6 +14,13 @@ from ai_manager import ai_manager
 from models_config import get_all_models, get_model_info
 import requests
 from datetime import date, timedelta
+from cryptography.fernet import Fernet
+import base64
+import urllib3
+import io
+import PyPDF2
+import pdfplumber
+from bs4 import BeautifulSoup
 
 # Carregar variáveis de ambiente
 load_dotenv()
@@ -28,6 +35,298 @@ db = SQLAlchemy(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+
+# Filtros personalizados para templates
+@app.template_filter('from_json')
+def from_json_filter(value):
+    """Filtro para converter string JSON em objeto Python"""
+    if not value:
+        return None
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+# Desabilitar avisos de SSL para a API do Balcão Jus
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+class BalcaoJusAPI:
+    def __init__(self):
+        self.base_url = "https://balcaojus.trf2.jus.br/balcaojus/api/v1"
+        self.session = requests.Session()
+        self.token = None
+    
+    def autenticar(self, username: str, password: str) -> dict:
+        """Autentica no Balcão Jus e obtém token"""
+        url = f"{self.base_url}/autenticar"
+        data = {
+            "username": username,
+            "password": password
+        }
+        
+        response = self.session.post(url, json=data, verify=False)
+        response.raise_for_status()
+        
+        result = response.json()
+        if "id_token" in result:
+            self.token = result["id_token"]
+            self.session.headers.update({
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/json, text/plain, */*",
+                "Content-Type": "application/json"
+            })
+        
+        return result
+    
+    def buscar_movimentos_processo(self, numero_processo: str, sistema: str) -> dict:
+        """Busca movimentos de um processo específico"""
+        url = f"{self.base_url}/processo/{numero_processo}/consultar"
+        params = {"sistema": sistema}
+        
+        response = self.session.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+    
+    def obter_jwt_peca(self, numero_processo: str, id_peca: str, sistema: str) -> str:
+        """Obtém JWT para download de uma peça"""
+        url = f"{self.base_url}/processo/{numero_processo}/peca/{id_peca}/pdf"
+        params = {"sistema": sistema}
+        
+        response = self.session.get(url, params=params)
+        response.raise_for_status()
+        
+        result = response.json()
+        return result.get("jwt")
+    
+    def download_peca(self, jwt: str, numero_processo: str, id_peca: str) -> bytes:
+        """Faz download do conteúdo da peça"""
+        url = f"{self.base_url}/download/{jwt}/{numero_processo}-peca-{id_peca}.pdf"
+        
+        response = self.session.get(url)
+        response.raise_for_status()
+        return response.content
+
+def extrair_texto_conteudo(conteudo_bytes: bytes, formato: str = 'pdf') -> str:
+    """
+    Extrai texto de conteúdo PDF ou HTML
+    
+    Args:
+        conteudo_bytes: Conteúdo em bytes
+        formato: 'pdf' ou 'html'
+    
+    Returns:
+        Texto extraído ou mensagem de erro
+    """
+    try:
+        if formato.lower() == 'pdf':
+            return extrair_texto_pdf(conteudo_bytes)
+        elif formato.lower() == 'html':
+            return extrair_texto_html(conteudo_bytes)
+        else:
+            return f"Formato não suportado: {formato}"
+    except Exception as e:
+        return f"Erro ao extrair texto: {str(e)}"
+
+def extrair_texto_pdf(conteudo_bytes: bytes) -> str:
+    """
+    Extrai texto de um PDF usando múltiplas bibliotecas para melhor resultado
+    """
+    texto = ""
+    
+    # Tentar com pdfplumber primeiro (melhor para PDFs complexos)
+    try:
+        with pdfplumber.open(io.BytesIO(conteudo_bytes)) as pdf:
+            for pagina in pdf.pages:
+                texto_pagina = pagina.extract_text()
+                if texto_pagina:
+                    texto += texto_pagina + "\n"
+        
+        if texto.strip():
+            return texto.strip()
+    except Exception as e:
+        print(f"pdfplumber falhou: {e}")
+    
+    # Fallback para PyPDF2
+    try:
+        pdf_file = io.BytesIO(conteudo_bytes)
+        pdf_reader = PyPDF2.PdfReader(pdf_file)
+        
+        for pagina in pdf_reader.pages:
+            texto_pagina = pagina.extract_text()
+            if texto_pagina:
+                texto += texto_pagina + "\n"
+        
+        return texto.strip()
+    except Exception as e:
+        return f"Erro ao extrair texto do PDF: {str(e)}"
+
+def extrair_texto_html(conteudo_bytes: bytes) -> str:
+    """
+    Extrai texto de conteúdo HTML seguindo regras específicas para atos judiciais
+    """
+    try:
+        # Tentar diferentes encodings para preservar acentos
+        encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
+        html_content = None
+        
+        for encoding in encodings:
+            try:
+                html_content = conteudo_bytes.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if html_content is None:
+            # Fallback: usar utf-8 com errors='replace'
+            html_content = conteudo_bytes.decode('utf-8', errors='replace')
+        
+        # Parse HTML com encoding explícito
+        soup = BeautifulSoup(html_content, 'html.parser', from_encoding='utf-8')
+        
+        # Remover scripts e estilos
+        for script in soup(["script", "style"]):
+            script.decompose()
+        
+        # Remover header e footer
+        for header in soup.find_all("header"):
+            header.decompose()
+        for footer in soup.find_all("footer"):
+            footer.decompose()
+        
+        # Encontrar o elemento article
+        article = soup.find("article")
+        if article:
+            # Lógica específica para article com seções (mantida como estava)
+            secoes = article.find_all("section")
+            if secoes:
+                texto_extraido = []
+                
+                for secao in secoes:
+                    # Verificar se a seção deve ser ignorada baseada nos atributos data-nome
+                    data_nome = secao.get('data-nome', '')
+                    secoes_ignorar = ['endereco', 'identificacao_processo', 'partes', 'assinaturas', 'notas']
+                    
+                    if data_nome in secoes_ignorar:
+                        continue  # Ignorar esta seção
+                    
+                    # Extrair texto dos parágrafos dentro da seção
+                    paragrafos = secao.find_all('p')
+                    for paragrafo in paragrafos:
+                        # Usar string diretamente para preservar caracteres especiais
+                        texto_paragrafo = paragrafo.get_text(separator=' ', strip=True)
+                        if texto_paragrafo:  # Só adicionar se não estiver vazio
+                            texto_extraido.append(texto_paragrafo)
+                
+                # Juntar todos os parágrafos com quebras de linha
+                texto_final = '\n\n'.join(texto_extraido)
+                
+                # Limpar texto (remover espaços extras, mas preservar quebras de linha)
+                linhas = []
+                for linha in texto_final.split('\n'):
+                    linha_limpa = ' '.join(linha.split())  # Remove espaços múltiplos
+                    if linha_limpa:  # Só adicionar linhas não vazias
+                        linhas.append(linha_limpa)
+                
+                texto_final = '\n\n'.join(linhas)
+                
+                if texto_final:
+                    return texto_final
+                else:
+                    # Se não encontrou texto nas seções, usar fallback
+                    return _extrair_texto_completo_html(soup)
+            else:
+                # Se não há seções no article, usar fallback
+                return _extrair_texto_completo_html(soup)
+        else:
+            # Elemento article não encontrado, usar fallback para extrair todo o texto
+            return _extrair_texto_completo_html(soup)
+        
+    except Exception as e:
+        return f"Erro ao extrair texto do HTML: {str(e)}"
+
+def _extrair_texto_completo_html(soup) -> str:
+    """
+    Função auxiliar para extrair todo o texto do HTML quando não há article/sections
+    """
+    try:
+        # Remover elementos que geralmente não contêm conteúdo relevante
+        elementos_remover = ['script', 'style', 'nav', 'aside', 'header', 'footer']
+        for elemento in elementos_remover:
+            for tag in soup.find_all(elemento):
+                tag.decompose()
+        
+        # Extrair texto de todos os elementos de texto
+        texto_extraido = []
+        
+        # Buscar por parágrafos primeiro (mais comum em documentos)
+        paragrafos = soup.find_all('p')
+        if paragrafos:
+            for paragrafo in paragrafos:
+                texto = paragrafo.get_text(separator=' ', strip=True)
+                if texto:
+                    texto_extraido.append(texto)
+        
+        # Se não encontrou parágrafos, buscar por divs com texto
+        if not texto_extraido:
+            divs = soup.find_all('div')
+            for div in divs:
+                # Verificar se o div contém texto direto (não apenas elementos filhos)
+                if div.string and div.string.strip():
+                    texto = div.get_text(separator=' ', strip=True)
+                    if texto and len(texto) > 10:  # Filtrar textos muito curtos
+                        texto_extraido.append(texto)
+        
+        # Se ainda não encontrou, extrair todo o texto do body
+        if not texto_extraido:
+            body = soup.find('body')
+            if body:
+                texto = body.get_text(separator='\n', strip=True)
+                if texto:
+                    # Dividir em linhas e limpar
+                    linhas = []
+                    for linha in texto.split('\n'):
+                        linha_limpa = ' '.join(linha.split())
+                        if linha_limpa and len(linha_limpa) > 5:  # Filtrar linhas muito curtas
+                            linhas.append(linha_limpa)
+                    texto_extraido = linhas
+        
+        # Juntar e limpar o texto final
+        if texto_extraido:
+            texto_final = '\n\n'.join(texto_extraido)
+            
+            # Limpar texto (remover espaços extras, mas preservar quebras de linha)
+            linhas = []
+            for linha in texto_final.split('\n'):
+                linha_limpa = ' '.join(linha.split())  # Remove espaços múltiplos
+                if linha_limpa:  # Só adicionar linhas não vazias
+                    linhas.append(linha_limpa)
+            
+            texto_final = '\n\n'.join(linhas)
+            return texto_final
+        else:
+            return "Nenhum texto encontrado no HTML"
+            
+    except Exception as e:
+        return f"Erro ao extrair texto completo do HTML: {str(e)}"
+
+def detectar_formato_conteudo(conteudo_bytes: bytes) -> str:
+    """
+    Detecta o formato do conteúdo baseado nos primeiros bytes
+    """
+    # Verificar assinatura do PDF
+    if conteudo_bytes.startswith(b'%PDF'):
+        return 'pdf'
+    
+    # Verificar se é HTML
+    try:
+        inicio = conteudo_bytes[:1000].decode('utf-8', errors='ignore').lower()
+        if '<html' in inicio or '<!doctype' in inicio:
+            return 'html'
+    except:
+        pass
+    
+    # Padrão é PDF
+    return 'pdf'
 
 # Modelos do banco de dados
 class User(db.Model):
@@ -84,14 +383,6 @@ class AppConfig(db.Model):
     description = db.Column(db.Text, nullable=True)
     updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
 
-class ModelInstructions(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    model_id = db.Column(db.String(100), unique=True, nullable=False)
-    instructions = db.Column(db.Text, nullable=False)
-    is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
-    updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
-
 class GeneralInstructions(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     instructions = db.Column(db.Text, nullable=False)
@@ -108,6 +399,17 @@ class APIKey(db.Model):
     
     def __repr__(self):
         return f'<APIKey {self.provider}>'
+
+class EprocCredentials(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    login = db.Column(db.Text, nullable=False)  # Criptografado
+    password = db.Column(db.Text, nullable=False)  # Criptografado
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
+    
+    def __repr__(self):
+        return f'<EprocCredentials {"Ativo" if self.is_active else "Inativo"}>'
 
 class DollarRate(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -126,7 +428,26 @@ class ModelStatus(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     def __repr__(self):
-        return f'<ModelStatus {self.model_id}: {"Enabled" if self.is_enabled else "Disabled"}>'
+        return f'<ModelStatus {self.model_id}: {"enabled" if self.is_enabled else "disabled"}>'
+
+class DebugRequest(db.Model):
+    """Modelo para armazenar requisições de debug da IA"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    action = db.Column(db.String(100), nullable=False)  # generate_minuta, adjust_minuta
+    request_data = db.Column(db.Text, nullable=False)  # JSON da requisição
+    response_data = db.Column(db.Text, nullable=False)  # JSON da resposta
+    prompt_used = db.Column(db.Text, nullable=True)  # Prompt final usado
+    model_used = db.Column(db.String(100), nullable=True)
+    tokens_info = db.Column(db.Text, nullable=True)  # JSON com info de tokens
+    success = db.Column(db.Boolean, default=True)
+    error_message = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    
+    user = db.relationship('User', backref=db.backref('debug_requests', lazy=True))
+    
+    def __repr__(self):
+        return f'<DebugRequest {self.action} by {self.user_id} at {self.created_at}>'
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -153,11 +474,6 @@ def get_default_ai_model():
     """Obtém o modelo de IA padrão da aplicação"""
     return get_app_config('default_ai_model', 'gemini-2.5-pro')
 
-def get_model_instructions(model_id):
-    """Obtém as instruções específicas de um modelo"""
-    instructions = ModelInstructions.query.filter_by(model_id=model_id, is_active=True).first()
-    return instructions
-
 def get_general_instructions():
     """Obtém as instruções gerais"""
     general = GeneralInstructions.query.first()
@@ -182,6 +498,72 @@ def set_api_key(provider, api_key_value):
 def get_all_api_keys():
     """Obtém todas as chaves de API"""
     return APIKey.query.all()
+
+# Funções para criptografia das credenciais do eproc
+def get_encryption_key():
+    """Obtém a chave de criptografia baseada na SECRET_KEY do Flask"""
+    secret_key = app.config['SECRET_KEY']
+    # Usar os primeiros 32 bytes da SECRET_KEY para o Fernet
+    key = base64.urlsafe_b64encode(secret_key.encode()[:32].ljust(32, b'0'))
+    return key
+
+def encrypt_text(text):
+    """Criptografa um texto usando a chave do Flask"""
+    if not text:
+        return ""
+    key = get_encryption_key()
+    f = Fernet(key)
+    return f.encrypt(text.encode()).decode()
+
+def decrypt_text(encrypted_text):
+    """Descriptografa um texto usando a chave do Flask"""
+    if not encrypted_text:
+        return ""
+    try:
+        key = get_encryption_key()
+        f = Fernet(key)
+        return f.decrypt(encrypted_text.encode()).decode()
+    except Exception as e:
+        print(f"Erro ao descriptografar: {e}")
+        return ""
+
+def get_eproc_credentials():
+    """Obtém as credenciais do eproc (descriptografadas)"""
+    credentials = EprocCredentials.query.filter_by(is_active=True).first()
+    if credentials:
+        return {
+            'login': decrypt_text(credentials.login),
+            'password': decrypt_text(credentials.password),
+            'is_active': credentials.is_active
+        }
+    return None
+
+def set_eproc_credentials(login, password):
+    """Define as credenciais do eproc (criptografadas)"""
+    # Desativar credenciais existentes
+    existing = EprocCredentials.query.filter_by(is_active=True).first()
+    if existing:
+        existing.is_active = False
+        existing.updated_at = datetime.now(timezone.utc)
+    
+    # Criar novas credenciais
+    new_credentials = EprocCredentials(
+        login=encrypt_text(login),
+        password=encrypt_text(password),
+        is_active=True
+    )
+    db.session.add(new_credentials)
+    db.session.commit()
+
+def test_eproc_credentials(login, password):
+    """Testa as credenciais do eproc (simulado por enquanto)"""
+    # Por enquanto, apenas valida se os campos não estão vazios
+    if not login or not password:
+        return False, "Login e senha são obrigatórios"
+    
+    # Simular teste de credenciais
+    # Em implementação real, aqui seria feita a chamada para a API do balcão jus
+    return True, "Credenciais válidas (teste simulado)"
 
 def get_dollar_rate():
     """
@@ -253,23 +635,27 @@ def get_enabled_models():
     return enabled_models
 
 def get_all_models_with_status():
-    """Obtém todos os modelos com seus status"""
+    """Retorna todos os modelos com status de habilitação"""
     from models_config import get_all_models, get_model_info
+    models = get_all_models()
+    models_with_status = []
     
-    models = []
-    for model_id in get_all_models():
-        info = get_model_info(model_id)
-        if info:
+    for model_id in models:
+        model_info = get_model_info(model_id)
+        if model_info:
             is_enabled = get_model_status(model_id)
-            models.append({
+            models_with_status.append({
                 'id': model_id,
-                'name': f"{info['display_name']} ({info['provider_name']})",
-                'provider': info['provider_name'],
-                'description': info['description'],
-                'is_enabled': is_enabled
+                'name': model_info.get('display_name', model_id),
+                'provider': model_info.get('provider', 'unknown'),
+                'is_enabled': is_enabled,
+                'description': model_info.get('description', ''),
+                'max_tokens': model_info.get('max_tokens', 4000),
+                'cost_per_1k_input': model_info.get('price_input', 0),
+                'cost_per_1k_output': model_info.get('price_output', 0)
             })
     
-    return models
+    return models_with_status
 
 def format_cost_for_user(cost_usd):
     """
@@ -331,6 +717,104 @@ def format_conclusion_for_provider(instructions, provider):
     # Não há mais conclusão separada, tudo está nas instruções
     return ""
 
+def extrair_pecas_movimentos_balcaojus(json_movimentos):
+    """
+    Processa o JSON de resposta do Balcão Jus e retorna uma lista de peças vinculadas a movimentos.
+    Cada item da lista contém: evento, data, descricao, lista de peças (com id, descricao, tipo, mimetype, data, etc)
+    """
+    if not json_movimentos or 'value' not in json_movimentos:
+        return []
+    value = json_movimentos['value']
+    movimentos = value.get('movimento', [])
+    documentos = value.get('documento', [])
+    # Indexar documentos por id para busca rápida
+    doc_by_id = {doc['idDocumento']: doc for doc in documentos}
+    resultado = []
+    for mov in movimentos:
+        evento = mov.get('identificadorMovimento')
+        data = mov.get('dataHora')
+        descricao_mov = mov.get('movimentoLocal', {}).get('descricao', '')
+        pecas = []
+        for id_doc in mov.get('idDocumentoVinculado', []):
+            doc = doc_by_id.get(id_doc)
+            if doc:
+                pecas.append({
+                    'id': doc['idDocumento'],
+                    'descricao': doc.get('descricao', ''),
+                    'tipo': doc.get('tipoDocumento', ''),
+                    'mimetype': doc.get('mimetype', ''),
+                    'data': doc.get('dataHora', ''),
+                    'movimento': doc.get('movimento', ''),
+                    'rotulo': doc.get('outroParametro', {}).get('rotulo', ''),
+                    'tamanho': doc.get('outroParametro', {}).get('tamanho', ''),
+                })
+        if pecas:
+            resultado.append({
+                'evento': evento,
+                'data': data,
+                'descricao': descricao_mov,
+                'pecas': pecas
+            })
+    return resultado
+
+def save_debug_request(action, request_data, response_data, prompt_used=None, model_used=None, tokens_info=None, success=True, error_message=None):
+    """Salva uma requisição de debug no banco de dados"""
+    try:
+        # Manter apenas as 20 últimas requisições por usuário
+        user_id = current_user.id if current_user.is_authenticated else None
+        
+        if user_id:
+            # Contar requisições existentes do usuário
+            count = DebugRequest.query.filter_by(user_id=user_id).count()
+            
+            if count >= 20:
+                # Remover as mais antigas até ficar com 19 (para adicionar a nova)
+                excess_count = count - 19
+                oldest_requests = DebugRequest.query.filter_by(user_id=user_id).order_by(DebugRequest.created_at.asc()).limit(excess_count).all()
+                for old_request in oldest_requests:
+                    db.session.delete(old_request)
+        
+        # Criar nova requisição de debug
+        debug_request = DebugRequest(
+            user_id=user_id,
+            action=action,
+            request_data=json.dumps(request_data, ensure_ascii=False, indent=2),
+            response_data=json.dumps(response_data, ensure_ascii=False, indent=2),
+            prompt_used=prompt_used,
+            model_used=model_used,
+            tokens_info=json.dumps(tokens_info, ensure_ascii=False, indent=2) if tokens_info else None,
+            success=success,
+            error_message=error_message
+        )
+        
+        db.session.add(debug_request)
+        db.session.commit()
+        
+        return debug_request.id
+        
+    except Exception as e:
+        app.logger.error(f"Erro ao salvar debug request: {str(e)}")
+        db.session.rollback()
+        return None
+
+def get_debug_requests(limit=10):
+    """Retorna as últimas requisições de debug"""
+    try:
+        requests = DebugRequest.query.order_by(DebugRequest.created_at.desc()).limit(limit).all()
+        return requests
+    except Exception as e:
+        app.logger.error(f"Erro ao buscar debug requests: {str(e)}")
+        return []
+
+def get_user_debug_requests(user_id, limit=20):
+    """Retorna as últimas requisições de debug de um usuário específico"""
+    try:
+        requests = DebugRequest.query.filter_by(user_id=user_id).order_by(DebugRequest.created_at.desc()).limit(limit).all()
+        return requests
+    except Exception as e:
+        app.logger.error(f"Erro ao buscar debug requests do usuário: {str(e)}")
+        return []
+
 # Rotas
 @app.route('/')
 def index():
@@ -369,9 +853,16 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
+    """Dashboard principal - agora usa a versão eproc"""
     prompts = Prompt.query.all()
-    default_prompt = Prompt.query.filter_by(is_default=True).first()
-    return render_template('dashboard.html', prompts=prompts, default_prompt=default_prompt)
+    return render_template('dashboard_eproc.html', prompts=prompts)
+
+@app.route('/dashboardb')
+@login_required
+def dashboard_eproc():
+    """Dashboard alternativo com integração eproc - mantido como backup"""
+    prompts = Prompt.query.all()
+    return render_template('dashboard_eproc.html', prompts=prompts)
 
 @app.route('/change_password', methods=['GET', 'POST'])
 @login_required
@@ -467,6 +958,32 @@ def generate_minuta():
             max_tokens=2000
         )
         
+        # Preparar resposta
+        response_data = {
+            'minuta': minuta,
+            'tokens_info': {
+                'request_tokens': tokens_info['request_tokens'],
+                'response_tokens': tokens_info['response_tokens'],
+                'total_tokens': tokens_info['total_tokens'],
+                'model_used': tokens_info['model_used'],
+                'success': tokens_info['success']
+            },
+            'cost_info': tokens_info.get('display_info', {}),
+            'user_cost': format_cost_for_user(tokens_info.get('cost_info', {}).get('total_cost', 0))
+        }
+        
+        # Salvar debug request
+        save_debug_request(
+            action='generate_minuta',
+            request_data=data,
+            response_data=response_data,
+            prompt_used=prompt_content,
+            model_used=ai_model_id,
+            tokens_info=tokens_info,
+            success=tokens_info['success'],
+            error_message=tokens_info.get('error')
+        )
+        
         # Log de uso detalhado
         log = UsageLog(
             user_id=current_user.id,
@@ -481,20 +998,19 @@ def generate_minuta():
         db.session.add(log)
         db.session.commit()
         
-        return jsonify({
-            'minuta': minuta,
-            'tokens_info': {
-                'request_tokens': tokens_info['request_tokens'],
-                'response_tokens': tokens_info['response_tokens'],
-                'total_tokens': tokens_info['total_tokens'],
-                'model_used': tokens_info['model_used'],
-                'success': tokens_info['success']
-            },
-            'cost_info': tokens_info.get('display_info', {}),
-            'user_cost': format_cost_for_user(tokens_info.get('cost_info', {}).get('total_cost', 0))
-        })
+        return jsonify(response_data)
         
     except Exception as e:
+        # Salvar debug request de erro
+        error_response = {'error': str(e)}
+        save_debug_request(
+            action='generate_minuta',
+            request_data=data if 'data' in locals() else {},
+            response_data=error_response,
+            success=False,
+            error_message=str(e)
+        )
+        
         # Log de erro
         log = UsageLog(
             user_id=current_user.id,
@@ -506,7 +1022,7 @@ def generate_minuta():
         db.session.add(log)
         db.session.commit()
         
-        return jsonify({'error': str(e)}), 500
+        return jsonify(error_response), 500
 
 @app.route('/adjust_minuta', methods=['POST'])
 @login_required
@@ -559,30 +1075,48 @@ def adjust_minuta():
         
         # Criar prompt de ajuste com histórico
         adjustment_prompt = f"""
-Com base na minuta atual, no histórico de conversa e na solicitação de ajuste, faça as modificações necessárias.
-
-HISTÓRICO DA CONVERSA:
-- Prompt original: {prompt.content}
-- Dados do processo: {data.get('numero_processo', 'Não informado')}
-- Peças processuais: {pecas_texto}
-- Como decidir: {data.get('como_decidir', '')}
-- Fundamentos: {data.get('fundamentos', '')}
-- Vedações: {data.get('vedacoes', '')}
+{data.get('adjustment_prompt', '')}
 
 MINUTA ATUAL:
 {data.get('current_content', '')}
 
-SOLICITAÇÃO DE AJUSTE:
-{data.get('adjustment_prompt', '')}
+PECAS PROCESSUAIS ORIGINAIS:
+{pecas_texto}
 
-Por favor, gere uma nova versão da minuta aplicando o ajuste solicitado. Mantenha a estrutura e formatação adequadas para um documento judicial. Considere o contexto completo da conversa para fazer os ajustes apropriados.
+Por favor, ajuste a minuta conforme solicitado, mantendo a estrutura e formatação adequadas para um documento judicial.
 """
         
-        # Gerar resposta usando IA com o modelo selecionado
-        minuta, tokens_info = ai_manager.generate_response(
+        # Gerar resposta usando IA
+        minuta_ajustada, tokens_info = ai_manager.generate_response(
             prompt=adjustment_prompt,
             model=ai_model_id,
             max_tokens=2000
+        )
+        
+        # Preparar resposta
+        response_data = {
+            'minuta': minuta_ajustada,
+            'tokens_info': {
+                'request_tokens': tokens_info['request_tokens'],
+                'response_tokens': tokens_info['response_tokens'],
+                'total_tokens': tokens_info['total_tokens'],
+                'model_used': tokens_info['model_used'],
+                'success': tokens_info['success']
+            },
+            'cost_info': tokens_info.get('display_info', {}),
+            'user_cost': format_cost_for_user(tokens_info.get('cost_info', {}).get('total_cost', 0))
+        }
+        
+        # Salvar debug request
+        save_debug_request(
+            action='adjust_minuta',
+            request_data=data,
+            response_data=response_data,
+            prompt_used=adjustment_prompt,
+            model_used=ai_model_id,
+            tokens_info=tokens_info,
+            success=tokens_info['success'],
+            error_message=tokens_info.get('error')
         )
         
         # Log de uso detalhado
@@ -599,20 +1133,19 @@ Por favor, gere uma nova versão da minuta aplicando o ajuste solicitado. Manten
         db.session.add(log)
         db.session.commit()
         
-        return jsonify({
-            'minuta': minuta,
-            'tokens_info': {
-                'request_tokens': tokens_info['request_tokens'],
-                'response_tokens': tokens_info['response_tokens'],
-                'total_tokens': tokens_info['total_tokens'],
-                'model_used': tokens_info['model_used'],
-                'success': tokens_info['success']
-            },
-            'cost_info': tokens_info.get('display_info', {}),
-            'user_cost': format_cost_for_user(tokens_info.get('cost_info', {}).get('total_cost', 0))
-        })
+        return jsonify(response_data)
         
     except Exception as e:
+        # Salvar debug request de erro
+        error_response = {'error': str(e)}
+        save_debug_request(
+            action='adjust_minuta',
+            request_data=data if 'data' in locals() else {},
+            response_data=error_response,
+            success=False,
+            error_message=str(e)
+        )
+        
         # Log de erro
         log = UsageLog(
             user_id=current_user.id,
@@ -624,7 +1157,7 @@ Por favor, gere uma nova versão da minuta aplicando o ajuste solicitado. Manten
         db.session.add(log)
         db.session.commit()
         
-        return jsonify({'error': str(e)}), 500
+        return jsonify(error_response), 500
 
 # Rotas administrativas
 @app.route('/admin')
@@ -1021,7 +1554,7 @@ def admin_instructions():
     if request.method == 'POST':
         action = request.form.get('action')
         
-        if action == 'general':
+        if action == 'save_general':
             instructions = request.form.get('general_instructions', '')
             general = GeneralInstructions.query.first()
             if general:
@@ -1032,95 +1565,213 @@ def admin_instructions():
                 db.session.add(general)
             db.session.commit()
             flash('Instruções gerais atualizadas com sucesso!', 'success')
-            
-        elif action == 'model':
-            model_id = request.form.get('model_id')
-            instructions = request.form.get('model_instructions', '')
-            
-            if model_id and instructions:
-                existing = ModelInstructions.query.filter_by(model_id=model_id).first()
-                if existing:
-                    existing.instructions = instructions
-                    existing.updated_at = datetime.now(timezone.utc)
-                else:
-                    new_instructions = ModelInstructions(
-                        model_id=model_id,
-                        instructions=instructions
-                    )
-                    db.session.add(new_instructions)
-                db.session.commit()
-                flash(f'Instruções do modelo {model_id} atualizadas com sucesso!', 'success')
     
     # Obter dados para exibição
     general_instructions = get_general_instructions()
-    model_instructions = ModelInstructions.query.all()
-    available_models = get_enabled_models()
     
     return render_template('admin_instructions.html', 
-                         general_instructions=general_instructions,
-                         model_instructions=model_instructions,
-                         available_models=available_models)
+                         general_instructions=general_instructions)
 
 @app.route('/admin/api_keys', methods=['GET', 'POST'])
 @login_required
 def admin_api_keys():
     if not current_user.is_admin:
-        flash('Acesso negado.', 'error')
+        flash('Acesso negado. Apenas administradores podem acessar esta página.', 'error')
         return redirect(url_for('dashboard'))
     
     if request.method == 'POST':
         action = request.form.get('action')
         
-        if action == 'update_key':
+        if action == 'add_key':
             provider = request.form.get('provider')
-            api_key = request.form.get('api_key', '').strip()
+            api_key = request.form.get('api_key')
             
-            if provider and api_key:
+            if not provider or not api_key:
+                flash('Todos os campos são obrigatórios.', 'error')
+            else:
                 set_api_key(provider, api_key)
-                flash(f'Chave da API {provider} atualizada com sucesso!', 'success')
-            elif provider and not api_key:
-                # Desativar chave
-                existing = APIKey.query.filter_by(provider=provider).first()
-                if existing:
-                    existing.is_active = False
-                    existing.updated_at = datetime.now(timezone.utc)
-                    db.session.commit()
-                    flash(f'Chave da API {provider} desativada!', 'success')
+                flash(f'Chave de API para {provider} configurada com sucesso!', 'success')
         
         elif action == 'test_key':
             provider = request.form.get('provider')
-            api_key = get_api_key(provider)
+            api_key = request.form.get('api_key')
             
-            if api_key:
-                # Testar a chave (implementação básica)
+            if not provider or not api_key:
+                flash('Todos os campos são obrigatórios.', 'error')
+            else:
                 try:
+                    # Testar a chave
                     if provider == 'openai':
                         import openai
-                        client = openai.OpenAI(api_key=api_key)
-                        response = client.models.list()
-                        flash(f'Chave da API {provider} válida!', 'success')
+                        openai.api_key = api_key
+                        response = openai.models.list()
+                        flash(f'Chave OpenAI válida! Modelos disponíveis: {len(response.data)}', 'success')
                     elif provider == 'anthropic':
                         import anthropic
                         client = anthropic.Anthropic(api_key=api_key)
-                        # Teste básico
-                        flash(f'Chave da API {provider} válida!', 'success')
+                        response = client.models.list()
+                        flash(f'Chave Anthropic válida! Modelos disponíveis: {len(response.data)}', 'success')
                     elif provider == 'google':
                         import google.generativeai as genai
                         genai.configure(api_key=api_key)
-                        # Teste básico
-                        flash(f'Chave da API {provider} válida!', 'success')
+                        models = genai.list_models()
+                        flash(f'Chave Google válida! Modelos disponíveis: {len(list(models))}', 'success')
                 except Exception as e:
-                    flash(f'Erro ao testar chave da API {provider}: {str(e)}', 'error')
-            else:
-                flash(f'Chave da API {provider} não encontrada!', 'error')
+                    flash(f'Erro ao testar chave: {str(e)}', 'error')
+        
+        elif action == 'delete_key':
+            provider = request.form.get('provider')
+            if provider:
+                # Marcar como inativa em vez de deletar
+                key = APIKey.query.filter_by(provider=provider).first()
+                if key:
+                    key.is_active = False
+                    db.session.commit()
+                    flash(f'Chave de API para {provider} desativada.', 'success')
+        
+        return redirect(url_for('admin_api_keys'))
     
-    # Obter chaves existentes
     api_keys = get_all_api_keys()
+    return render_template('admin_api_keys.html', api_keys=api_keys)
+
+@app.route('/admin/debug', methods=['GET'])
+@login_required
+def admin_debug():
+    """Página de debug para visualizar requisições de IA"""
+    if not current_user.is_admin:
+        flash('Acesso negado. Apenas administradores podem acessar esta página.', 'error')
+        return redirect(url_for('dashboard'))
     
-    # Criar dicionário para facilitar o acesso
-    keys_dict = {key.provider: key for key in api_keys}
+    # Obter requisições de debug
+    debug_requests = get_debug_requests(limit=20)
     
-    return render_template('admin_api_keys.html', api_keys=keys_dict)
+    return render_template('admin_debug.html', debug_requests=debug_requests)
+
+@app.route('/admin/debug/<int:request_id>', methods=['GET'])
+@login_required
+def admin_debug_detail(request_id):
+    """Página de detalhes de uma requisição de debug específica"""
+    if not current_user.is_admin:
+        flash('Acesso negado. Apenas administradores podem acessar esta página.', 'error')
+        return redirect(url_for('dashboard'))
+    
+    # Obter requisição específica
+    debug_request = DebugRequest.query.get_or_404(request_id)
+    
+    return render_template('admin_debug_detail.html', debug_request=debug_request)
+
+@app.route('/api/buscar_movimentos', methods=['POST'])
+@login_required
+def buscar_movimentos():
+    try:
+        data = request.get_json()
+        numero_processo = data.get('numero_processo')
+        sistema = data.get('sistema', 'br.jus.jfrj.eproc')
+        
+        if not numero_processo:
+            return jsonify({'error': 'Número do processo é obrigatório'}), 400
+        
+        # Limpar número do processo (apenas números)
+        numero_processo_limpo = re.sub(r'[^\d]', '', numero_processo)
+        
+        if len(numero_processo_limpo) < 7:
+            return jsonify({'error': 'Número do processo deve ter pelo menos 7 dígitos'}), 400
+        
+        # Obter credenciais do eproc
+        credenciais = get_eproc_credentials()
+        if not credenciais:
+            return jsonify({'error': 'Credenciais do eproc não configuradas'}), 500
+        
+        # Autenticar na API
+        api = BalcaoJusAPI()
+        api.autenticar(credenciais['login'], credenciais['password'])
+        
+        # Buscar movimentos com número limpo
+        resultado = api.buscar_movimentos_processo(numero_processo_limpo, sistema)
+        
+        # Extrair peças dos movimentos
+        movimentos_com_pecas = extrair_pecas_movimentos_balcaojus(resultado)
+        
+        return jsonify({
+            'success': True,
+            'movimentos': movimentos_com_pecas,
+            'total': len(movimentos_com_pecas)
+        })
+        
+    except Exception as e:
+        app.logger.error(f"Erro ao buscar movimentos: {str(e)}")
+        return jsonify({'error': f'Erro ao buscar movimentos: {str(e)}'}), 500
+
+@app.route('/api/buscar_conteudo_peca', methods=['POST'])
+@login_required
+def buscar_conteudo_peca():
+    try:
+        data = request.get_json()
+        numero_processo = data.get('numero_processo')
+        id_peca = data.get('id_peca')
+        sistema = data.get('sistema', 'br.jus.jfrj.eproc')
+        
+        if not numero_processo or not id_peca:
+            return jsonify({'error': 'Número do processo e ID da peça são obrigatórios'}), 400
+        
+        # Limpar número do processo (apenas números)
+        numero_processo_limpo = re.sub(r'[^\d]', '', numero_processo)
+        
+        if len(numero_processo_limpo) < 7:
+            return jsonify({'error': 'Número do processo deve ter pelo menos 7 dígitos'}), 400
+        
+        # Obter credenciais do eproc
+        credenciais = get_eproc_credentials()
+        if not credenciais:
+            return jsonify({'error': 'Credenciais do eproc não configuradas'}), 500
+        
+        # Autenticar na API
+        api = BalcaoJusAPI()
+        api.autenticar(credenciais['login'], credenciais['password'])
+        
+        # Obter JWT para download da peça com número limpo
+        jwt = api.obter_jwt_peca(numero_processo_limpo, id_peca, sistema)
+        
+        if not jwt:
+            return jsonify({'error': 'Não foi possível obter autorização para download da peça'}), 500
+        
+        # Fazer download do conteúdo da peça com número limpo
+        conteudo_peca = api.download_peca(jwt, numero_processo_limpo, id_peca)
+        
+        # Detectar formato do conteúdo
+        formato = detectar_formato_conteudo(conteudo_peca)
+        
+        # Extrair texto do conteúdo
+        texto_extraido = extrair_texto_conteudo(conteudo_peca, formato)
+        
+        # Verificar se a extração foi bem-sucedida
+        if texto_extraido and not texto_extraido.startswith('Erro ao extrair'):
+            response = jsonify({
+                'success': True,
+                'conteudo_disponivel': True,
+                'tamanho_bytes': len(conteudo_peca),
+                'formato': formato.upper(),
+                'texto_extraido': texto_extraido,
+                'mensagem': f'Texto extraído com sucesso do {formato.upper()}.'
+            })
+            response.headers['Content-Type'] = 'application/json; charset=utf-8'
+            return response
+        else:
+            # Se não conseguiu extrair texto, retornar apenas informações do arquivo
+            response = jsonify({
+                'success': True,
+                'conteudo_disponivel': True,
+                'tamanho_bytes': len(conteudo_peca),
+                'formato': formato.upper(),
+                'texto_extraido': '',
+                'mensagem': f'Arquivo {formato.upper()} obtido, mas não foi possível extrair o texto: {texto_extraido}'
+            })
+            response.headers['Content-Type'] = 'application/json; charset=utf-8'
+            return response
+        
+    except Exception as e:
+        app.logger.error(f"Erro ao buscar conteúdo da peça: {str(e)}")
+        return jsonify({'error': f'Erro ao buscar conteúdo da peça: {str(e)}'}), 500
 
 # Inicialização do banco de dados
 def init_db():
@@ -1207,6 +1858,16 @@ Não mencione nomes de pessoas físicas ou jurídicas específicas. Não faça s
             print("✅ Prompts padrão criados")
             print("✅ Instruções gerais criadas")
             print("✅ Configurações padrão criadas")
+            print("✅ Tabela de debug criada")
+        else:
+            # Verificar se a tabela DebugRequest existe, se não, criar
+            try:
+                DebugRequest.query.first()
+                print("✅ Tabela de debug já existe")
+            except:
+                print("🔄 Criando tabela de debug...")
+                db.create_all()
+                print("✅ Tabela de debug criada")
 
 if __name__ == '__main__':
     # Configurar argumentos de linha de comando

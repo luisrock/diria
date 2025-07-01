@@ -2,7 +2,6 @@ import os
 import tiktoken
 import openai
 import anthropic
-import google.generativeai as genai
 from typing import Dict, List, Tuple, Optional
 import json
 import logging
@@ -10,6 +9,8 @@ from datetime import datetime
 from models_config import MODELS_CONFIG, get_all_models, get_model_info, get_provider_for_model
 import pprint
 from sqlalchemy import text
+from google import genai
+from google.genai import types
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -172,6 +173,8 @@ class TokenCounter:
     def count_tokens(self, text: str, model: str) -> int:
         """Conta tokens em um texto para um modelo específico"""
         try:
+            if text is None:
+                text = ""
             encoder = self.get_encoder(model)
             return len(encoder.encode(text))
         except Exception as e:
@@ -220,8 +223,10 @@ class AIManager:
         google_api_key = self._get_api_key_from_db('google')
         if google_api_key:
             try:
-                genai.configure(api_key=google_api_key)
+                # Nova API do Google Gemini não usa configure()
+                # A API key é passada diretamente no cliente
                 self.google_genai = genai
+                self.google_api_key = google_api_key
                 logger.info("Cliente Google configurado")
             except Exception as e:
                 logger.error(f"Erro ao configurar Google: {e}")
@@ -308,9 +313,13 @@ class AIManager:
             
             provider = model_info["provider"]
             
-            # Usar max_tokens do modelo se disponível
+            # Ajustar max_tokens baseado no provedor
             if max_tokens == 2000:  # Valor padrão
-                max_tokens = model_info.get("max_tokens", 2000)
+                if provider == "google":
+                    # Gemini precisa de mais tokens devido aos "pensamentos" internos
+                    max_tokens = 500  # Mínimo para Gemini funcionar
+                else:
+                    max_tokens = model_info.get("max_tokens", 2000)
             
             # Aplicar instruções específicas do modelo (sem dependência do app.py)
             system_message = self._get_model_instructions(model)
@@ -653,20 +662,25 @@ class AIManager:
             }
     
     def _call_google(self, prompt: str, model: str, max_tokens: int) -> Tuple[str, Dict]:
-        """Chama API do Google e retorna resposta com informações de tokens"""
+        """Chama API do Google Gemini (nova API) e retorna resposta com informações de tokens"""
         system_message = None
         if hasattr(self, '_current_system_message'):
             system_message = self._current_system_message
             delattr(self, '_current_system_message')
         
-        # Google aceita temperature de 0.0 a 2.0 - usar 0.3 para área jurídica
         temperature = 0.3
         
-        import google.generativeai as genai
-        model_obj = genai.GenerativeModel(model)
-        generation_config = genai.types.GenerationConfig(
+        # Usar a API key armazenada na configuração
+        api_key = getattr(self, 'google_api_key', None)
+        if not api_key:
+            raise Exception("API key do Google não configurada")
+        
+        client = genai.Client(api_key=api_key)
+        
+        config = types.GenerateContentConfig(
             max_output_tokens=max_tokens,
-            temperature=temperature
+            temperature=temperature,
+            system_instruction=system_message
         )
         
         # Log do payload para debug
@@ -680,61 +694,29 @@ class AIManager:
         }))
         
         try:
-            # Usar system_instruction se disponível, senão concatenar no prompt
-            if system_message:
-                try:
-                    response = model_obj.generate_content(
-                        prompt,
-                        generation_config=generation_config,
-                        system_instruction=system_message
-                    )
-                except TypeError:
-                    # Fallback: concatenar system message no prompt
-                    full_prompt = f"{system_message}\n\n{prompt}"
-                    response = model_obj.generate_content(
-                        full_prompt,
-                        generation_config=generation_config
-                    )
-            else:
-                response = model_obj.generate_content(
-                    prompt,
-                    generation_config=generation_config
-                )
-            
-            # Extrair texto da resposta de forma robusta
-            response_text = ""
-            if hasattr(response, 'candidates') and response.candidates:
-                candidate = response.candidates[0]
-                # Verificar se o candidato foi bem-sucedido
-                if hasattr(candidate, 'finish_reason') and candidate.finish_reason == 1:  # STOP = 1
-                    if hasattr(candidate, 'content') and candidate.content:
-                        if hasattr(candidate.content, 'parts') and candidate.content.parts:
-                            for part in candidate.content.parts:
-                                if hasattr(part, 'text'):
-                                    response_text += part.text
-                
-                # Se não conseguiu extrair por partes, tentar response.text
-                if not response_text:
-                    try:
-                        response_text = response.text
-                    except Exception as e:
-                        logger.warning(f"[Google Gemini] Erro ao extrair texto: {e}")
-                        response_text = "Erro ao extrair resposta da API"
-            else:
-                response_text = "Nenhum candidato retornado pela API"
+            response = client.models.generate_content(
+                model=model,
+                config=config,
+                contents=prompt
+            )
+            logger.debug(f"[Google Gemini] Resposta bruta: {response!r}")
+            response_text = getattr(response, 'text', None)
+            logger.debug(f"[Google Gemini] response.text: {response_text!r}")
+            if response_text is None:
+                response_text = ''
             
             # Capturar dados de uso da API Google Gemini
             usage_data = None
             if hasattr(response, 'usage_metadata') and response.usage_metadata:
                 usage_metadata = response.usage_metadata
+                def safe_int(val):
+                    return int(val) if isinstance(val, int) and val is not None else 0
                 usage_data = {
-                    'input_tokens': getattr(usage_metadata, 'prompt_token_count', 0),
-                    'output_tokens': getattr(usage_metadata, 'candidates_token_count', 0),
-                    'total_tokens': getattr(usage_metadata, 'total_token_count', 0),
-                    'cached_content_tokens': getattr(usage_metadata, 'cached_content_token_count', 0)
+                    'input_tokens': safe_int(getattr(usage_metadata, 'prompt_token_count', 0)),
+                    'output_tokens': safe_int(getattr(usage_metadata, 'candidates_token_count', 0)),
+                    'total_tokens': safe_int(getattr(usage_metadata, 'total_token_count', 0)),
+                    'cached_content_tokens': safe_int(getattr(usage_metadata, 'cached_content_token_count', 0))
                 }
-                
-                # Log das informações de tokens para debug
                 logger.debug(f"[Google Gemini] Tokens capturados da API:")
                 logger.debug(f"  Input: {usage_data['input_tokens']}")
                 logger.debug(f"  Output: {usage_data['output_tokens']}")
@@ -751,7 +733,7 @@ class AIManager:
                 "max_tokens": max_tokens,
                 "request_params": {
                     "model": model,
-                    "system_message": system_message,
+                    "system_instruction": system_message,
                     "prompt": prompt,
                     "max_tokens": max_tokens,
                     "temperature": temperature
@@ -766,9 +748,11 @@ class AIManager:
             # Se não conseguiu capturar da API, usar estimativa
             if not usage_data:
                 logger.warning("[Google Gemini] Não foi possível capturar tokens da API, usando estimativa")
+                safe_prompt = prompt if prompt is not None else ""
+                safe_response = response_text if response_text is not None else ""
                 usage_data = {
-                    'input_tokens': self.token_counter.count_tokens(prompt, model),
-                    'output_tokens': self.token_counter.count_tokens(response_text, model),
+                    'input_tokens': self.token_counter.count_tokens(safe_prompt, model),
+                    'output_tokens': self.token_counter.count_tokens(safe_response, model),
                     'total_tokens': 0,
                     'cached_content_tokens': 0
                 }
@@ -837,7 +821,7 @@ Data: {datetime.now().strftime('%d/%m/%Y')}
         return get_model_info(model)
 
     def _get_model_instructions(self, model_id: str) -> str:
-        """Obtém as instruções específicas de um modelo ou, se não houver, as gerais"""
+        """Obtém as instruções gerais do sistema"""
         try:
             # Verificar se estamos no contexto da aplicação Flask
             from flask import current_app
@@ -846,16 +830,7 @@ Data: {datetime.now().strftime('%d/%m/%Y')}
                 # Usar query SQL direta para evitar conflitos de SQLAlchemy
                 db = current_app.extensions['sqlalchemy'].db
                 
-                # Buscar instrução específica do modelo
-                result = db.session.execute(
-                    text("SELECT instructions FROM model_instructions WHERE model_id = :model_id AND is_active = 1"),
-                    {"model_id": model_id}
-                ).fetchone()
-                
-                if result:
-                    return result[0]
-                
-                # Se não encontrar, buscar instrução geral
+                # Buscar instrução geral
                 result = db.session.execute(
                     text("SELECT instructions FROM general_instructions LIMIT 1")
                 ).fetchone()
@@ -867,7 +842,7 @@ Data: {datetime.now().strftime('%d/%m/%Y')}
             else:
                 return ""
         except Exception as e:
-            logger.warning(f"Erro ao obter instruções do modelo {model_id}: {e}")
+            logger.warning(f"Erro ao obter instruções gerais: {e}")
             return ""
 
 # Instância global

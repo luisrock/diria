@@ -3,6 +3,34 @@
 {% block title %}Gerenciar Prompts - DIRIA{% endblock %}
 
 {% block content %}
+<style>
+.prompt-content {
+    max-height: 200px;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+    position: relative;
+}
+
+.prompt-content.expanded {
+    max-height: none;
+}
+
+.prompt-content:not(.expanded)::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    background: linear-gradient(to top, #f9fafb, transparent);
+    pointer-events: none;
+}
+
+.prompt-toggle-btn {
+    transition: all 0.2s ease;
+}
+</style>
+
 <div class="space-y-6">
     <!-- Header -->
     <div class="bg-white shadow-lg rounded-lg p-6">
@@ -123,7 +151,17 @@
                             </span>
                         </div>
                         <div class="bg-gray-50 border border-gray-200 rounded-md p-3">
+                            <div class="prompt-content" id="prompt-content-{{ prompt.id }}">
                             <p class="text-sm text-gray-700 whitespace-pre-wrap">{{ prompt.content }}</p>
+                            </div>
+                            <div class="mt-2 text-center">
+                                <button type="button" 
+                                        onclick="togglePromptContent({{ prompt.id }})" 
+                                        class="prompt-toggle-btn text-xs text-blue-600 hover:text-blue-800 font-medium">
+                                    <i class="fas fa-chevron-down mr-1"></i>
+                                    Ver mais
+                                </button>
+                            </div>
                         </div>
                         <p class="text-xs text-gray-500 mt-2">
                             Criado em: {{ prompt.created_at.strftime('%d/%m/%Y %H:%M') }}
@@ -155,7 +193,7 @@
 
     <!-- Modal de Edição -->
     <div id="editModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
-        <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+        <div class="relative top-10 mx-auto p-5 border w-11/12 md:w-4/5 lg:w-3/4 xl:w-2/3 shadow-lg rounded-md bg-white max-h-[90vh] overflow-y-auto">
             <div class="mt-3">
                 <h3 class="text-lg font-medium text-gray-900 mb-4">
                     <i class="fas fa-edit mr-2 text-blue-600"></i>
@@ -191,8 +229,8 @@
                     
                     <div>
                         <label for="edit_content" class="block text-sm font-medium text-gray-700">Conteúdo do Prompt</label>
-                        <textarea id="edit_content" name="content" rows="6" required
-                                  class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                        <textarea id="edit_content" name="content" rows="12" required
+                                  class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm resize-y"
                                   placeholder="Digite o prompt aqui. Use {{placeholder}} para campos do formulário..."></textarea>
                         <div class="mt-2">
                             <p class="text-xs text-gray-600 mb-2">Placeholders disponíveis (clique para copiar):</p>
@@ -363,6 +401,23 @@ function copyPlaceholderToEdit(placeholder, buttonElement) {
     } finally {
         // Limpar o elemento temporário
         document.body.removeChild(tempTextArea);
+    }
+}
+
+function togglePromptContent(promptId) {
+    const content = document.getElementById(`prompt-content-${promptId}`);
+    const toggleBtn = content.parentElement.querySelector('.prompt-toggle-btn');
+    
+    if (content.classList.contains('expanded')) {
+        // Colapsar
+        content.classList.remove('expanded');
+        content.style.maxHeight = '200px';
+        toggleBtn.innerHTML = '<i class="fas fa-chevron-down mr-1"></i>Ver mais';
+    } else {
+        // Expandir
+        content.classList.add('expanded');
+        content.style.maxHeight = 'none';
+        toggleBtn.innerHTML = '<i class="fas fa-chevron-up mr-1"></i>Ver menos';
     }
 }
 </script>

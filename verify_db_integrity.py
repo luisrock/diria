@@ -36,7 +36,7 @@ def verify_database_integrity():
         
         # Verificar tabelas essenciais
         essential_tables = [
-            'user', 'usage_log', 'prompt', 'model_instructions', 
+            'user', 'usage_log', 'prompt', 
             'general_instructions', 'api_key', 'dollar_rate', 
             'model_status', 'app_config'
         ]

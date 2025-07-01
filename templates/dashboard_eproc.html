@@ -1,0 +1,606 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard Eproc - DIRIA{% endblock %}
+
+{% block extra_head %}
+<style>
+    .peca-item {
+        transition: all 0.3s ease;
+        cursor: default;
+        user-select: none;
+    }
+    .peca-item:hover {
+        transform: translateY(-2px);
+    }
+    
+    /* Estilos para drag and drop */
+    .peca-item.dragging {
+        opacity: 0.5;
+        transform: rotate(5deg);
+        z-index: 1000;
+    }
+    
+    .peca-item.drag-over-top {
+        border-top: 3px solid #3b82f6;
+        margin-top: 10px;
+        position: relative;
+    }
+    
+    .peca-item.drag-over-top::before {
+        content: '';
+        position: absolute;
+        top: -8px;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background-color: #3b82f6;
+        border-radius: 1px;
+    }
+    
+    .peca-item.drag-over-bottom {
+        border-bottom: 3px solid #3b82f6;
+        margin-bottom: 10px;
+        position: relative;
+    }
+    
+    .peca-item.drag-over-bottom::after {
+        content: '';
+        position: absolute;
+        bottom: -8px;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background-color: #3b82f6;
+        border-radius: 1px;
+    }
+    
+    .peca-item .drag-handle {
+        cursor: grab;
+        color: #6b7280;
+        transition: color 0.2s ease;
+    }
+    
+    .peca-item .drag-handle:hover {
+        color: #3b82f6;
+    }
+    
+    .peca-item .drag-handle:active {
+        cursor: grabbing;
+    }
+    
+    .peca-item .order-indicator {
+        background-color: #3b82f6;
+        color: white;
+        border-radius: 50%;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: bold;
+        margin-right: 8px;
+    }
+    
+    /* Estilos para o CKEditor */
+    .ck-editor__editable {
+        min-height: 400px;
+        max-height: 600px;
+        overflow-y: auto;
+    }
+    
+    .ck.ck-editor__main > .ck-editor__editable {
+        background-color: #f9fafb;
+        border: 1px solid #d1d5db;
+        border-radius: 0.375rem;
+    }
+    
+    .ck.ck-toolbar {
+        border: 1px solid #d1d5db;
+        border-bottom: none;
+        border-radius: 0.375rem 0.375rem 0 0;
+        background-color: #ffffff;
+    }
+
+    /* Estilos para o modal */
+    .modal {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.5);
+    }
+
+    .modal-content {
+        background-color: #fefefe;
+        margin: 5% auto;
+        padding: 0;
+        border-radius: 0.5rem;
+        width: 90%;
+        max-width: 1000px;
+        max-height: 80vh;
+        overflow: hidden;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    }
+
+    .modal-header {
+        background-color: #f8fafc;
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid #e2e8f0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .modal-body {
+        padding: 1.5rem;
+        max-height: 60vh;
+        overflow-y: auto;
+    }
+
+    .modal-footer {
+        background-color: #f8fafc;
+        padding: 1rem 1.5rem;
+        border-top: 1px solid #e2e8f0;
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.75rem;
+    }
+
+    .close {
+        color: #aaa;
+        float: right;
+        font-size: 28px;
+        font-weight: bold;
+        cursor: pointer;
+    }
+
+    .close:hover,
+    .close:focus {
+        color: #000;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    /* Estilos para a tabela de movimentos */
+    .movimentos-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .movimentos-table th,
+    .movimentos-table td {
+        padding: 0.75rem;
+        text-align: left;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .movimentos-table th {
+        background-color: #f8fafc;
+        font-weight: 600;
+        color: #374151;
+    }
+
+    .movimentos-table tr:hover {
+        background-color: #f9fafb;
+    }
+
+    .movimento-checkbox {
+        width: 20px;
+        height: 20px;
+        cursor: pointer;
+    }
+
+    .loading-spinner {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border: 3px solid #f3f3f3;
+        border-top: 3px solid #3498db;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    /* Estilo para área vazia do container */
+    #pecas-container:empty::after,
+    #outras-pecas-container:empty::after {
+        content: 'Arraste peças aqui';
+        display: block;
+        padding: 2rem;
+        text-align: center;
+        color: #9ca3af;
+        border: 2px dashed #d1d5db;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+    }
+    
+    /* Estilo para container com peças sendo arrastadas */
+    #pecas-container.drag-over-container,
+    #outras-pecas-container.drag-over-container {
+        background-color: #f0f9ff;
+        border: 2px dashed #3b82f6;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
+</style>
+<!-- CKEditor CDN -->
+<script src="https://cdn.ckeditor.com/ckeditor5/40.1.0/classic/ckeditor.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="bg-white shadow-lg rounded-lg p-6">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900">
+                    <i class="fas fa-file-alt mr-3 text-primary-600"></i>
+                    Gerador de Minutas (Eproc)
+                </h1>
+                <p class="mt-1 text-sm text-gray-600">
+                    Versão com integração ao sistema eproc - Preencha os campos abaixo para gerar sua minuta
+                </p>
+            </div>
+            {% if current_user.first_login %}
+            <div class="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+                <div class="flex">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-exclamation-triangle text-yellow-400"></i>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm text-yellow-800">
+                            <a href="{{ url_for('change_password') }}" class="font-medium underline">
+                                Altere sua senha no primeiro acesso
+                            </a>
+                        </p>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Formulário Principal -->
+    <div class="bg-white shadow-lg rounded-lg p-6">
+        <form id="minutaForm" class="space-y-6">
+            <!-- Número do Processo -->
+            <div>
+                <label for="numero_processo" class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-hashtag mr-2 text-primary-600"></i>
+                    Número do Processo (Opcional)
+                </label>
+                <div class="flex gap-3">
+                    <input type="text" id="numero_processo" name="numero_processo" 
+                           class="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                           placeholder="Ex: 0001234-56.2023.4.01.3400"
+                           oninput="limparNumeroProcesso(this)">
+                    <button type="button" id="btnResgatarMovimentos" 
+                            class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            onclick="abrirModalMovimentos()">
+                        <i class="fas fa-search mr-2"></i>
+                        Resgatar Movimentos
+                    </button>
+                </div>
+                <p class="mt-1 text-xs text-gray-500">Apenas números serão considerados</p>
+            </div>
+
+            <!-- Grupos de peças -->
+            <div class="space-y-6">
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Peças do Processo</h3>
+                    <div id="pecas-container" class="space-y-3">
+                        <!-- As peças serão inseridas aqui dinamicamente -->
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Outras Peças</h3>
+                    <div id="outras-pecas-container" class="space-y-3">
+                        <!-- Outras peças serão inseridas aqui dinamicamente -->
+                    </div>
+                    <button type="button" onclick="addPeca()" 
+                            class="mt-3 inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                        <i class="fas fa-plus mr-2"></i>
+                        Adicionar Peça Manual
+                    </button>
+                </div>
+            </div>
+
+            <!-- Como Decidir -->
+            <div>
+                <label for="como_decidir" class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-gavel mr-2 text-primary-600"></i>
+                    Como Decidir <span class="text-red-500">*</span>
+                </label>
+                <textarea id="como_decidir" name="como_decidir" rows="4" required
+                          class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                          placeholder="Descreva como você gostaria que a decisão fosse tomada..."></textarea>
+            </div>
+
+            <!-- Fundamentos -->
+            <div>
+                <label for="fundamentos" class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-book mr-2 text-primary-600"></i>
+                    Fundamentos (Opcional)
+                </label>
+                <textarea id="fundamentos" name="fundamentos" rows="4"
+                          class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                          placeholder="Fundamentos legais da decisão..."></textarea>
+            </div>
+
+            <!-- Vedações -->
+            <div>
+                <label for="vedacoes" class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-ban mr-2 text-primary-600"></i>
+                    Vedações (Opcional)
+                </label>
+                <textarea id="vedacoes" name="vedacoes" rows="4"
+                          class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                          placeholder="Limitações ou vedações que devem ser consideradas..."></textarea>
+            </div>
+
+            <!-- Seleção de Prompt -->
+            <div>
+                <label for="prompt_select" class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-magic mr-2 text-primary-600"></i>
+                    Modelo de Prompt
+                </label>
+                <select id="prompt_select" name="prompt_select"
+                        class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm">
+                    {% for prompt in prompts %}
+                    <option value="{{ prompt.id }}" {% if prompt.is_default %}selected{% endif %}>
+                        {{ prompt.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Seleção de Modelo de IA -->
+            <div>
+                <label for="ai_model_select" class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-robot mr-2 text-primary-600"></i>
+                    Modelo de IA
+                </label>
+                <select id="ai_model_select" name="ai_model_select"
+                        class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm">
+                    <!-- Opções serão preenchidas dinamicamente -->
+                </select>
+            </div>
+
+            <!-- Botão de envio -->
+            <div class="flex justify-end space-x-3">
+                <button type="button" onclick="mostrarPreviewOrdem()" 
+                        class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">
+                    <i class="fas fa-eye mr-2"></i>
+                    Ver Ordem
+                </button>
+                <button type="button" onclick="enviarFormulario()" 
+                        class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                    <i class="fas fa-magic mr-2"></i>
+                    Gerar Minuta
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Resultado da Minuta -->
+    <div id="resultado" class="bg-white shadow-lg rounded-lg p-6 hidden">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-medium text-gray-900">
+                <i class="fas fa-file-alt mr-2 text-primary-600"></i>
+                Minuta Gerada
+            </h3>
+            <div class="flex space-x-2">
+                <button onclick="copiarMinuta()" 
+                        class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                    <i class="fas fa-copy mr-2"></i>
+                    Copiar
+                </button>
+                <button onclick="baixarMinuta()" 
+                        class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                    <i class="fas fa-download mr-2"></i>
+                    Baixar
+                </button>
+                <button onclick="showAdjustDialog()" 
+                        class="inline-flex items-center px-3 py-2 border border-blue-300 shadow-sm text-sm leading-4 font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    <i class="fas fa-edit mr-2"></i>
+                    Fazer Ajustes
+                </button>
+            </div>
+        </div>
+        
+        <!-- Container do CKEditor -->
+        <div id="editor"></div>
+        
+        <!-- Informações de Tokens -->
+        <div id="tokens-info" class="mt-4">
+            <!-- Informações de tokens serão inseridas aqui -->
+        </div>
+    </div>
+
+    <!-- Seção de Ajustes e Versões -->
+    <div id="ajustes-section" class="bg-white shadow-lg rounded-lg p-6 hidden">
+        <div class="flex items-center justify-between mb-4">
+            <div>
+                <h3 class="text-lg font-medium text-gray-900">
+                    <i class="fas fa-edit mr-2 text-blue-600"></i>
+                    Ajustes e Versões
+                </h3>
+                <p class="text-sm text-gray-600 mt-1">
+                    <span id="version-counter">0</span> versão(ões) criada(s)
+                </p>
+            </div>
+            <div class="flex space-x-2">
+                <button onclick="clearAllVersions()" 
+                        class="inline-flex items-center px-3 py-1 border border-red-300 shadow-sm text-sm font-medium rounded-md text-red-700 bg-red-50 hover:bg-red-100">
+                    <i class="fas fa-trash mr-1"></i>
+                    Limpar Todas
+                </button>
+                <button onclick="hideAdjustsSection()" 
+                        class="inline-flex items-center px-3 py-1 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                    <i class="fas fa-times mr-1"></i>
+                    Fechar
+                </button>
+            </div>
+        </div>
+        
+        <!-- Container para múltiplas versões -->
+        <div id="versoes-container" class="space-y-6">
+            <!-- As versões serão inseridas aqui dinamicamente -->
+        </div>
+    </div>
+
+    <!-- Modal de Ajuste -->
+    <div id="adjustModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+        <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
+            <div class="mt-3">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-medium text-gray-900">
+                        <i class="fas fa-magic mr-2 text-blue-600"></i>
+                        Solicitar Ajuste na Minuta
+                    </h3>
+                    <button onclick="hideAdjustDialog()" class="text-gray-400 hover:text-gray-600">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                
+                <div class="mb-4">
+                    <label for="adjustPrompt" class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-comment mr-2 text-blue-600"></i>
+                        Descreva o ajuste desejado
+                    </label>
+                    <textarea id="adjustPrompt" rows="4" 
+                              class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                              placeholder="Ex: Torne o texto mais formal, adicione fundamentação legal, corrija erros gramaticais, etc..."></textarea>
+                </div>
+                
+                <div class="mb-4">
+                    <label for="adjustModel" class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-robot mr-2 text-blue-600"></i>
+                        Modelo de IA para o ajuste
+                    </label>
+                    <select id="adjustModel" 
+                            class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                        <!-- Opções serão preenchidas dinamicamente -->
+                    </select>
+                </div>
+                
+                <div class="flex justify-end space-x-3">
+                    <button onclick="hideAdjustDialog()" 
+                            class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                        Cancelar
+                    </button>
+                    <button onclick="requestAdjustment()" id="requestAdjustBtn"
+                            class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700">
+                        <i class="fas fa-paper-plane mr-2"></i>
+                        Solicitar Ajuste
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Movimentos -->
+<div id="modalMovimentos" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="text-lg font-medium text-gray-900">
+                <i class="fas fa-list mr-2 text-blue-600"></i>
+                Movimentos do Processo
+            </h3>
+            <span class="close" onclick="fecharModalMovimentos()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div id="loadingMovimentos" class="text-center py-8 hidden">
+                <div class="loading-spinner mx-auto mb-4"></div>
+                <p class="text-gray-600">Buscando movimentos do processo...</p>
+            </div>
+            <div id="conteudoMovimentos" class="hidden">
+                <div class="mb-4 flex justify-between items-center">
+                    <div>
+                        <span class="text-sm text-gray-600">Processo: </span>
+                        <span id="numeroProcessoModal" class="font-medium">0001234-56.2023.4.01.3400</span>
+                        <span class="ml-4 text-sm text-gray-600">
+                            Peças selecionadas: <span id="contadorSelecionados" class="font-medium">0</span>
+                        </span>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="inverterOrdemMovimentos()" 
+                                class="text-sm text-blue-600 hover:text-blue-800 border border-blue-300 px-2 py-1 rounded hover:bg-blue-50"
+                                id="btnInverterOrdem">
+                            <i class="fas fa-sort mr-1"></i>
+                            Inverter Ordem
+                        </button>
+                        <button onclick="limparSelecao()" 
+                                class="text-sm text-gray-600 hover:text-gray-800">
+                            Limpar Seleção
+                        </button>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="movimentos-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 50px;">
+                                    <input type="checkbox" id="selectAll">
+                                </th>
+                                <th>Evento</th>
+                                <th>Data</th>
+                                <th>Descrição</th>
+                                <th style="width: 100px;">PEÇA</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabelaMovimentos">
+                            <!-- Movimentos serão inseridos aqui -->
+                        </tbody>
+                    </table>
+                </div>
+                <div id="paginacao" class="mt-4 flex justify-between items-center">
+                    <div class="text-sm text-gray-600">
+                        <span id="infoPaginacao">Mostrando 1-10 de 25 movimentos</span>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="paginaAnterior()" 
+                                class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50">
+                            Anterior
+                        </button>
+                        <button onclick="paginaProxima()" 
+                                class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50">
+                            Próxima
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div id="erroMovimentos" class="text-center py-8 hidden">
+                <i class="fas fa-exclamation-triangle text-red-500 text-3xl mb-4"></i>
+                <p class="text-red-600 font-medium">Erro ao buscar movimentos</p>
+                <p class="text-gray-600 text-sm mt-2" id="mensagemErro">Verifique o número do processo e tente novamente.</p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button onclick="fecharModalMovimentos()" 
+                    class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50">
+                Cancelar
+            </button>
+            <button onclick="importarPecas()" 
+                    class="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700">
+                <i class="fas fa-download mr-2"></i>
+                Importar Peças Selecionadas (<span id="contadorSelecionadosBotao">0</span>)
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Scripts -->
+<script src="{{ url_for('static', filename='js/dashboard_eproc.js') }}"></script>
+{% endblock %} 
