@@ -209,15 +209,20 @@ class AIManager:
         
         # Anthropic
         anthropic_api_key = self._get_api_key_from_db('anthropic')
+        logger.info(f"[ANTHROPIC-SETUP] API Key encontrada: {anthropic_api_key is not None}")
         if anthropic_api_key:
             try:
+                logger.info(f"[ANTHROPIC-SETUP] Configurando cliente com chave: {anthropic_api_key[:10]}...")
                 self.anthropic_client = anthropic.Anthropic(
                     api_key=anthropic_api_key,
                     timeout=600.0  # 10 minutos de timeout
                 )
-                logger.info("Cliente Anthropic configurado")
+                logger.info("[ANTHROPIC-SETUP] Cliente Anthropic configurado com sucesso")
             except Exception as e:
-                logger.error(f"Erro ao configurar Anthropic: {e}")
+                logger.error(f"[ANTHROPIC-SETUP] Erro ao configurar Anthropic: {type(e).__name__}: {str(e)}")
+                logger.error(f"[ANTHROPIC-SETUP] Traceback:", exc_info=True)
+        else:
+            logger.warning("[ANTHROPIC-SETUP] API Key não encontrada no banco de dados")
         
         # Google
         google_api_key = self._get_api_key_from_db('google')
@@ -512,6 +517,11 @@ class AIManager:
         """Chama API da Anthropic e retorna resposta com informações de tokens"""
         import json
         from datetime import datetime
+        
+        # Log detalhado para debug
+        logger.info(f"[ANTHROPIC] Iniciando chamada para modelo: {model}")
+        logger.info(f"[ANTHROPIC] Cliente configurado: {self.anthropic_client is not None}")
+        
         system_message = None
         if hasattr(self, '_current_system_message'):
             system_message = self._current_system_message
@@ -528,8 +538,13 @@ class AIManager:
         if system_message:
             request_params["system"] = system_message
         
+        # Log do payload
+        logger.info(f"[ANTHROPIC] Payload: {json.dumps(request_params, indent=2, ensure_ascii=False)}")
+        
         try:
+            logger.info(f"[ANTHROPIC] Fazendo chamada para API...")
             response = self.anthropic_client.messages.create(**request_params)
+            logger.info(f"[ANTHROPIC] Resposta recebida com sucesso")
             response_text = response.content[0].text if response.content else ""
             usage_data = None
             if hasattr(response, 'usage') and response.usage:
@@ -567,7 +582,22 @@ class AIManager:
                 'display_info': display_info
             }
         except Exception as e:
-            logger.error(f"Erro na API Anthropic: {e}")
+            logger.error(f"[ANTHROPIC] Erro detalhado: {type(e).__name__}: {str(e)}")
+            logger.error(f"[ANTHROPIC] Traceback completo:", exc_info=True)
+            
+            # Log adicional para debug
+            import traceback
+            error_details = {
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "traceback": traceback.format_exc(),
+                "model": model,
+                "max_tokens": max_tokens,
+                "has_system_message": system_message is not None,
+                "prompt_length": len(prompt) if prompt else 0
+            }
+            logger.error(f"[ANTHROPIC] Detalhes do erro: {json.dumps(error_details, indent=2)}")
+            
             fallback_response = f"Erro na API Anthropic: {str(e)}"
             cost_info = self.token_usage_manager.calculate_cost_from_estimation(prompt, fallback_response, model)
             display_info = self.token_usage_manager.format_cost_for_display(cost_info)
@@ -585,9 +615,13 @@ class AIManager:
         # Anthropic aceita temperature de 0.0 a 1.0 - usar 0.3 para área jurídica
         temperature = 0.3
         
+        # Log detalhado para debug
+        logger.info(f"[ANTHROPIC-STREAMING] Iniciando chamada para modelo: {model}")
+        logger.info(f"[ANTHROPIC-STREAMING] Cliente configurado: {self.anthropic_client is not None}")
+        
         # Log do payload para debug
-        logger.debug("[Anthropic-Streaming] Payload enviado:")
-        logger.debug(pprint.pformat({
+        logger.info("[ANTHROPIC-STREAMING] Payload enviado:")
+        logger.info(pprint.pformat({
             "model": model,
             "system": system_message,
             "messages": [{"role": "user", "content": prompt}],
@@ -609,7 +643,9 @@ class AIManager:
             request_params["system"] = system_message
         
         try:
+            logger.info(f"[ANTHROPIC-STREAMING] Fazendo chamada para API...")
             response = self.anthropic_client.messages.create(**request_params)
+            logger.info(f"[ANTHROPIC-STREAMING] Resposta streaming iniciada")
             full_response = ""
             usage_data = None
             
@@ -646,7 +682,23 @@ class AIManager:
             }
             
         except Exception as e:
-            logger.error(f"Erro na API Anthropic (streaming): {e}")
+            logger.error(f"[ANTHROPIC-STREAMING] Erro detalhado: {type(e).__name__}: {str(e)}")
+            logger.error(f"[ANTHROPIC-STREAMING] Traceback completo:", exc_info=True)
+            
+            # Log adicional para debug
+            import traceback
+            error_details = {
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "traceback": traceback.format_exc(),
+                "model": model,
+                "max_tokens": max_tokens,
+                "has_system_message": system_message is not None,
+                "prompt_length": len(prompt) if prompt else 0,
+                "streaming": True
+            }
+            logger.error(f"[ANTHROPIC-STREAMING] Detalhes do erro: {json.dumps(error_details, indent=2)}")
+            
             # Fallback com estimativa
             fallback_response = f"Erro na API Anthropic: {str(e)}"
             cost_info = self.token_usage_manager.calculate_cost_from_estimation(prompt, fallback_response, model)
