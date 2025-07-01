@@ -649,10 +649,17 @@ class AIManager:
             full_response = ""
             usage_data = None
             
+            logger.info(f"[ANTHROPIC-STREAMING] Processando chunks da resposta...")
+            chunk_count = 0
             for chunk in response:
+                chunk_count += 1
+                logger.debug(f"[ANTHROPIC-STREAMING] Chunk {chunk_count}: type={chunk.type}")
+                
                 if chunk.type == "content_block_delta":
                     full_response += chunk.delta.text
+                    logger.debug(f"[ANTHROPIC-STREAMING] Adicionado texto: {len(chunk.delta.text)} chars")
                 elif chunk.type == "message_stop":
+                    logger.info(f"[ANTHROPIC-STREAMING] Mensagem finalizada após {chunk_count} chunks")
                     # Capturar dados de uso no evento final
                     if hasattr(chunk, 'usage') and chunk.usage:
                         usage_data = {
@@ -661,6 +668,9 @@ class AIManager:
                             'cache_creation_input_tokens': getattr(chunk.usage, 'cache_creation_input_tokens', 0),
                             'cache_read_input_tokens': getattr(chunk.usage, 'cache_read_input_tokens', 0)
                         }
+                        logger.info(f"[ANTHROPIC-STREAMING] Usage data capturado: {usage_data}")
+            
+            logger.info(f"[ANTHROPIC-STREAMING] Resposta completa: {len(full_response)} caracteres")
             
             # Calcular custo usando dados da API se disponíveis
             if usage_data:
@@ -671,6 +681,9 @@ class AIManager:
             
             # Formatar para exibição
             display_info = self.token_usage_manager.format_cost_for_display(cost_info)
+            
+            logger.info(f"[ANTHROPIC-STREAMING] Retornando resposta com sucesso")
+            logger.info(f"[ANTHROPIC-STREAMING] Tamanho da resposta: {len(full_response)} caracteres")
             
             return full_response, {
                 'success': True,
