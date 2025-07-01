@@ -1612,9 +1612,9 @@ def admin_api_keys():
                         response = client.models.list()
                         flash(f'Chave Anthropic válida! Modelos disponíveis: {len(response.data)}', 'success')
                     elif provider == 'google':
-                        import google.generativeai as genai
-                        genai.configure(api_key=api_key)
-                        models = genai.list_models()
+                        from google import genai
+                        client = genai.Client(api_key=api_key)
+                        models = client.models.list()
                         flash(f'Chave Google válida! Modelos disponíveis: {len(list(models))}', 'success')
                 except Exception as e:
                     flash(f'Erro ao testar chave: {str(e)}', 'error')
