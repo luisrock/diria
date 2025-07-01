@@ -519,8 +519,8 @@ class AIManager:
         from datetime import datetime
         
         # Log detalhado para debug
-        logger.info(f"[ANTHROPIC] Iniciando chamada para modelo: {model}")
-        logger.info(f"[ANTHROPIC] Cliente configurado: {self.anthropic_client is not None}")
+        logger.debug(f"[ANTHROPIC] Iniciando chamada para modelo: {model}")
+        logger.debug(f"[ANTHROPIC] Cliente configurado: {self.anthropic_client is not None}")
         
         system_message = None
         if hasattr(self, '_current_system_message'):
@@ -538,13 +538,13 @@ class AIManager:
         if system_message:
             request_params["system"] = system_message
         
-        # Log do payload
-        logger.info(f"[ANTHROPIC] Payload: {json.dumps(request_params, indent=2, ensure_ascii=False)}")
+        # Log do payload (apenas em debug)
+        logger.debug(f"[ANTHROPIC] Payload: {json.dumps(request_params, indent=2, ensure_ascii=False)}")
         
         try:
-            logger.info(f"[ANTHROPIC] Fazendo chamada para API...")
+            logger.debug(f"[ANTHROPIC] Fazendo chamada para API...")
             response = self.anthropic_client.messages.create(**request_params)
-            logger.info(f"[ANTHROPIC] Resposta recebida com sucesso")
+            logger.debug(f"[ANTHROPIC] Resposta recebida com sucesso")
             response_text = response.content[0].text if response.content else ""
             usage_data = None
             if hasattr(response, 'usage') and response.usage:
@@ -616,12 +616,12 @@ class AIManager:
         temperature = 0.3
         
         # Log detalhado para debug
-        logger.info(f"[ANTHROPIC-STREAMING] Iniciando chamada para modelo: {model}")
-        logger.info(f"[ANTHROPIC-STREAMING] Cliente configurado: {self.anthropic_client is not None}")
+        logger.debug(f"[ANTHROPIC-STREAMING] Iniciando chamada para modelo: {model}")
+        logger.debug(f"[ANTHROPIC-STREAMING] Cliente configurado: {self.anthropic_client is not None}")
         
         # Log do payload para debug
-        logger.info("[ANTHROPIC-STREAMING] Payload enviado:")
-        logger.info(pprint.pformat({
+        logger.debug("[ANTHROPIC-STREAMING] Payload enviado:")
+        logger.debug(pprint.pformat({
             "model": model,
             "system": system_message,
             "messages": [{"role": "user", "content": prompt}],
@@ -643,13 +643,13 @@ class AIManager:
             request_params["system"] = system_message
         
         try:
-            logger.info(f"[ANTHROPIC-STREAMING] Fazendo chamada para API...")
+            logger.debug(f"[ANTHROPIC-STREAMING] Fazendo chamada para API...")
             response = self.anthropic_client.messages.create(**request_params)
-            logger.info(f"[ANTHROPIC-STREAMING] Resposta streaming iniciada")
+            logger.debug(f"[ANTHROPIC-STREAMING] Resposta streaming iniciada")
             full_response = ""
             usage_data = None
             
-            logger.info(f"[ANTHROPIC-STREAMING] Processando chunks da resposta...")
+            logger.debug(f"[ANTHROPIC-STREAMING] Processando chunks da resposta...")
             chunk_count = 0
             for chunk in response:
                 chunk_count += 1
@@ -659,7 +659,7 @@ class AIManager:
                     full_response += chunk.delta.text
                     logger.debug(f"[ANTHROPIC-STREAMING] Adicionado texto: {len(chunk.delta.text)} chars")
                 elif chunk.type == "message_stop":
-                    logger.info(f"[ANTHROPIC-STREAMING] Mensagem finalizada após {chunk_count} chunks")
+                    logger.debug(f"[ANTHROPIC-STREAMING] Mensagem finalizada após {chunk_count} chunks")
                     # Capturar dados de uso no evento final
                     if hasattr(chunk, 'usage') and chunk.usage:
                         usage_data = {
@@ -668,9 +668,9 @@ class AIManager:
                             'cache_creation_input_tokens': getattr(chunk.usage, 'cache_creation_input_tokens', 0),
                             'cache_read_input_tokens': getattr(chunk.usage, 'cache_read_input_tokens', 0)
                         }
-                        logger.info(f"[ANTHROPIC-STREAMING] Usage data capturado: {usage_data}")
+                        logger.debug(f"[ANTHROPIC-STREAMING] Usage data capturado: {usage_data}")
             
-            logger.info(f"[ANTHROPIC-STREAMING] Resposta completa: {len(full_response)} caracteres")
+            logger.debug(f"[ANTHROPIC-STREAMING] Resposta completa: {len(full_response)} caracteres")
             
             # Calcular custo usando dados da API se disponíveis
             if usage_data:
@@ -682,8 +682,8 @@ class AIManager:
             # Formatar para exibição
             display_info = self.token_usage_manager.format_cost_for_display(cost_info)
             
-            logger.info(f"[ANTHROPIC-STREAMING] Retornando resposta com sucesso")
-            logger.info(f"[ANTHROPIC-STREAMING] Tamanho da resposta: {len(full_response)} caracteres")
+            logger.debug(f"[ANTHROPIC-STREAMING] Retornando resposta com sucesso")
+            logger.debug(f"[ANTHROPIC-STREAMING] Tamanho da resposta: {len(full_response)} caracteres")
             
             return full_response, {
                 'success': True,
