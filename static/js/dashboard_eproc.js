@@ -1258,14 +1258,20 @@ async function enviarFormulario() {
             conteudo: peca.conteudo
         }));
         
-        // Enviar para o servidor
+        // Enviar para o servidor com timeout de 5 minutos
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 minutos
+        
         const response = await fetch('/generate_minuta', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(formData)
+            body: JSON.stringify(formData),
+            signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
         
         const result = await response.json();
         
@@ -1870,14 +1876,20 @@ async function requestAdjustment() {
             model_id: adjustModel
         };
         
-        // Enviar para o servidor
+        // Enviar para o servidor com timeout de 5 minutos
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 minutos
+        
         const response = await fetch('/adjust_minuta', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(adjustmentData)
+            body: JSON.stringify(adjustmentData),
+            signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
         
         const result = await response.json();
         
