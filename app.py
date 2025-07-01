@@ -1629,10 +1629,41 @@ def admin_api_keys():
                     db.session.commit()
                     flash(f'Chave de API para {provider} desativada.', 'success')
         
+        elif action == 'test_eproc':
+            login = request.form.get('eproc_login')
+            password = request.form.get('eproc_password')
+            
+            if not login or not password:
+                flash('Login e senha do eproc são obrigatórios.', 'error')
+            else:
+                success, message = test_eproc_credentials(login, password)
+                if success:
+                    flash(f'Credenciais do eproc válidas: {message}', 'success')
+                else:
+                    flash(f'Erro ao testar credenciais do eproc: {message}', 'error')
+        
+        elif action == 'update_eproc':
+            login = request.form.get('eproc_login')
+            password = request.form.get('eproc_password')
+            
+            if not login or not password:
+                flash('Login e senha do eproc são obrigatórios.', 'error')
+            else:
+                set_eproc_credentials(login, password)
+                flash('Credenciais do eproc configuradas com sucesso!', 'success')
+        
         return redirect(url_for('admin_api_keys'))
     
-    api_keys = get_all_api_keys()
-    return render_template('admin_api_keys.html', api_keys=api_keys)
+    # Obter chaves de API e transformar em dicionário
+    api_keys_list = get_all_api_keys()
+    api_keys = {}
+    for key in api_keys_list:
+        api_keys[key.provider] = key
+    
+    # Obter credenciais do eproc
+    eproc_credentials = get_eproc_credentials()
+    
+    return render_template('admin_api_keys.html', api_keys=api_keys, eproc_credentials=eproc_credentials)
 
 @app.route('/admin/debug', methods=['GET'])
 @login_required
