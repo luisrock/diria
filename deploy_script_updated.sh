@@ -65,7 +65,7 @@ bind = "127.0.0.1:8000"
 workers = 2
 worker_class = "sync"
 worker_connections = 1000
-timeout = 30
+timeout = 300
 keepalive = 2
 max_requests = 1000
 max_requests_jitter = 100
@@ -331,11 +331,7 @@ echo ""
 echo "🎉 Deploy automático concluído com sucesso!"
 echo "🌐 Aplicação disponível em: https://diria.com.br"
 echo ""
-echo "👤 Usuários padrão criados:"
-echo "   • admin@diria.com / admin123 (Administrador)"
-echo "   • assessor1@diria.com / senha123 (Assessor 1)"
-echo "   • assessor2@diria.com / senha456 (Assessor 2)"
-echo ""
+
 echo "🔑 IMPORTANTE: Configure as chaves de API via painel administrativo!"
 echo "   Acesse: https://diria.com.br/admin/api_keys"
 echo "   Ou use o arquivo .env como fallback"
