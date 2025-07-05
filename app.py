@@ -663,6 +663,7 @@ def get_all_models_with_status():
                     'is_enabled': model.is_enabled,
                     'description': model.description or '',
                     'max_tokens': model.max_tokens,
+                    'context_window': model.context_window,
                     'cost_per_1k_input': model.price_input,
                     'cost_per_1k_output': model.price_output
                 })
@@ -1640,6 +1641,51 @@ def admin_config():
                             flash(f'Modelo {display_name} adicionado com sucesso!', 'success')
                 except Exception as e:
                     flash(f'Erro ao adicionar modelo: {str(e)}', 'error')
+        
+        elif action == 'edit_model':
+            original_model_id = request.form.get('original_model_id')
+            provider = request.form.get('provider')
+            model_id = request.form.get('model_id')
+            display_name = request.form.get('display_name')
+            description = request.form.get('description')
+            max_tokens = int(request.form.get('max_tokens', 32768))
+            context_window = int(request.form.get('context_window', 32768))
+            price_input = float(request.form.get('price_input', 0))
+            price_output = float(request.form.get('price_output', 0))
+            
+            if not all([original_model_id, provider, model_id, display_name]):
+                flash('Provider, ID do modelo e nome são obrigatórios.', 'error')
+            else:
+                try:
+                    with app.app_context():
+                        # Buscar o modelo original
+                        model = AIModel.query.filter_by(model_id=original_model_id).first()
+                        if not model:
+                            flash('Modelo não encontrado.', 'error')
+                        else:
+                            # Verificar se o novo ID já existe (se for diferente do original)
+                            if model_id != original_model_id:
+                                existing = AIModel.query.filter_by(model_id=model_id).first()
+                                if existing:
+                                    flash('Já existe um modelo com este ID.', 'error')
+                                    return redirect(url_for('admin_config'))
+                            
+                            # Atualizar os campos
+                            model.provider = provider
+                            model.model_id = model_id
+                            model.name = model_id  # Atualizar também o name
+                            model.display_name = display_name
+                            model.description = description
+                            model.max_tokens = max_tokens
+                            model.context_window = context_window
+                            model.price_input = price_input
+                            model.price_output = price_output
+                            model.updated_at = datetime.now(timezone.utc)
+                            
+                            db.session.commit()
+                            flash(f'Modelo {display_name} atualizado com sucesso!', 'success')
+                except Exception as e:
+                    flash(f'Erro ao atualizar modelo: {str(e)}', 'error')
     
     # Obter configurações atuais
     current_default_model = get_default_ai_model()

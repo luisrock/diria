@@ -2,6 +2,141 @@
 
 {% block title %}Configurações - DIRIA{% endblock %}
 
+{% block extra_head %}
+<style>
+    /* Estilos para o modal de edição */
+    .modal {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.5);
+    }
+
+    .modal-content {
+        background-color: #fefefe;
+        margin: 5% auto;
+        padding: 0;
+        border-radius: 0.5rem;
+        width: 90%;
+        max-width: 800px;
+        max-height: 80vh;
+        overflow: hidden;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    }
+
+    .modal-header {
+        background-color: #f8fafc;
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid #e2e8f0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .modal-body {
+        padding: 1.5rem;
+        max-height: 60vh;
+        overflow-y: auto;
+    }
+
+    .modal-footer {
+        background-color: #f8fafc;
+        padding: 1rem 1.5rem;
+        border-top: 1px solid #e2e8f0;
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.75rem;
+    }
+
+    .close {
+        color: #aaa;
+        float: right;
+        font-size: 28px;
+        font-weight: bold;
+        cursor: pointer;
+    }
+
+    .close:hover,
+    .close:focus {
+        color: #000;
+        text-decoration: none;
+        cursor: pointer;
+    }
+    
+    /* Estilos para o toaster */
+    .toaster {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 9999;
+        max-width: 400px;
+        transform: translateX(100%);
+        transition: transform 0.3s ease-in-out;
+    }
+    
+    .toaster.show {
+        transform: translateX(0);
+    }
+    
+    .toaster-content {
+        padding: 1rem;
+        border-radius: 0.5rem;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    
+    .toaster.success {
+        background-color: #d1fae5;
+        border: 1px solid #10b981;
+        color: #065f46;
+    }
+    
+    .toaster.error {
+        background-color: #fee2e2;
+        border: 1px solid #ef4444;
+        color: #991b1b;
+    }
+    
+    .toaster.warning {
+        background-color: #fef3c7;
+        border: 1px solid #f59e0b;
+        color: #92400e;
+    }
+    
+    .toaster-icon {
+        flex-shrink: 0;
+    }
+    
+    .toaster-message {
+        flex-grow: 1;
+        font-size: 0.875rem;
+        font-weight: 500;
+    }
+    
+    .toaster-close {
+        flex-shrink: 0;
+        background: none;
+        border: none;
+        color: inherit;
+        cursor: pointer;
+        padding: 0.25rem;
+        border-radius: 0.25rem;
+        opacity: 0.7;
+        transition: opacity 0.2s;
+    }
+    
+    .toaster-close:hover {
+        opacity: 1;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="space-y-6">
     <!-- Header -->
@@ -189,9 +324,9 @@
                     </div>
                 </div>
                 
-                <!-- Controles de Status -->
-                <div class="flex justify-between items-center">
-                    <form method="POST" class="flex-1 mr-2">
+                <!-- Controles de Status e Edição -->
+                <div class="flex justify-between items-center space-x-2">
+                    <form method="POST" class="flex-1">
                         <input type="hidden" name="action" value="toggle_model">
                         <input type="hidden" name="model_id" value="{{ model.id }}">
                         <input type="hidden" name="is_enabled" value="{{ 'false' if model.is_enabled else 'true' }}">
@@ -202,30 +337,139 @@
                         </button>
                     </form>
                     
-                    {% if model.id == current_default_model %}
+                    <button type="button" 
+                            data-model-id="{{ model.id }}"
+                            data-model-name="{{ model.name }}"
+                            data-model-provider="{{ model.provider }}"
+                            data-model-description="{{ model.description|default('') }}"
+                            data-model-max-tokens="{{ model.max_tokens }}"
+                            data-model-context-window="{{ model.context_window }}"
+                            data-model-price-input="{{ model.cost_per_1k_input }}"
+                            data-model-price-output="{{ model.cost_per_1k_output }}"
+                            onclick="openEditModal(this)"
+                            class="inline-flex items-center justify-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        <i class="fas fa-edit mr-1"></i>
+                        Editar
+                    </button>
+                </div>
+                
+                {% if model.id == current_default_model %}
+                <div class="mt-2">
                     <span class="text-xs text-gray-500 px-2 py-1 bg-gray-100 rounded">
                         <i class="fas fa-info-circle mr-1"></i>Padrão
                     </span>
-                    {% endif %}
                 </div>
+                {% endif %}
             </div>
             {% endfor %}
         </div>
         
-        <!-- Informações Adicionais -->
-        <div class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <h4 class="text-sm font-medium text-blue-900 mb-2">
-                <i class="fas fa-info-circle mr-2"></i>
-                Informações sobre o Gerenciamento de Modelos
-            </h4>
-            <ul class="text-sm text-blue-800 space-y-1">
-                <li>• <strong>Adicionar Modelo:</strong> Preencha todos os campos obrigatórios (*) para adicionar um novo modelo</li>
-                <li>• <strong>Modelos Habilitados:</strong> Aparecem para os usuários no sistema</li>
-                <li>• <strong>Modelos Desabilitados:</strong> Não aparecem para os usuários, mas permanecem configurados</li>
-                <li>• <strong>Modelo Padrão:</strong> Sempre deve estar habilitado para funcionar corretamente</li>
-                <li>• <strong>Alterações:</strong> São aplicadas imediatamente após salvar</li>
-                <li>• <strong>ID do Modelo:</strong> Deve ser único e corresponder ao ID real da API (ex: gpt-4, claude-3-sonnet)</li>
-            </ul>
+
+    </div>
+
+    <!-- Modal de Edição -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="text-lg font-medium text-gray-900">
+                    <i class="fas fa-edit mr-2 text-blue-600"></i>
+                    Editar Modelo
+                </h3>
+                <span class="close" onclick="closeEditModal()">&times;</span>
+            </div>
+            
+            <form method="POST" id="editModelForm">
+                <input type="hidden" name="action" value="edit_model">
+                <input type="hidden" name="original_model_id" id="original_model_id">
+                
+                <div class="modal-body">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="edit_provider" class="block text-sm font-medium text-gray-700 mb-2">
+                                Provider *
+                            </label>
+                            <select id="edit_provider" name="provider" required
+                                    class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                                <option value="openai">OpenAI</option>
+                                <option value="anthropic">Anthropic</option>
+                                <option value="google">Google</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label for="edit_model_id" class="block text-sm font-medium text-gray-700 mb-2">
+                                ID do Modelo *
+                            </label>
+                            <input type="text" id="edit_model_id" name="model_id" required
+                                   placeholder="ex: gpt-4, claude-3-sonnet"
+                                   class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                        </div>
+                        
+                        <div>
+                            <label for="edit_display_name" class="block text-sm font-medium text-gray-700 mb-2">
+                                Nome para Exibição *
+                            </label>
+                            <input type="text" id="edit_display_name" name="display_name" required
+                                   placeholder="ex: GPT-4, Claude Sonnet"
+                                   class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                        </div>
+                        
+                        <div>
+                            <label for="edit_description" class="block text-sm font-medium text-gray-700 mb-2">
+                                Descrição
+                            </label>
+                            <input type="text" id="edit_description" name="description"
+                                   placeholder="Descrição do modelo"
+                                   class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                        </div>
+                        
+                        <div>
+                            <label for="edit_max_tokens" class="block text-sm font-medium text-gray-700 mb-2">
+                                Máximo de Tokens de Saída
+                            </label>
+                            <input type="number" id="edit_max_tokens" name="max_tokens" value="32768"
+                                   class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                        </div>
+                        
+                        <div>
+                            <label for="edit_context_window" class="block text-sm font-medium text-gray-700 mb-2">
+                                Janela de Contexto
+                            </label>
+                            <input type="number" id="edit_context_window" name="context_window" value="32768"
+                                   class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                        </div>
+                        
+                        <div>
+                            <label for="edit_price_input" class="block text-sm font-medium text-gray-700 mb-2">
+                                Preço por MTok Entrada (USD)
+                            </label>
+                            <input type="number" id="edit_price_input" name="price_input" value="0" step="0.01"
+                                   class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                        </div>
+                        
+                        <div>
+                            <label for="edit_price_output" class="block text-sm font-medium text-gray-700 mb-2">
+                                Preço por MTok Saída (USD)
+                            </label>
+                            <input type="number" id="edit_price_output" name="price_output" value="0" step="0.01"
+                                   class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="modal-footer">
+                    <button type="button" onclick="closeEditModal()"
+                            class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        <i class="fas fa-times mr-2"></i>
+                        Cancelar
+                    </button>
+                    <button type="submit"
+                            class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        <i class="fas fa-save mr-2"></i>
+                        Salvar Alterações
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -244,4 +488,119 @@
         </a>
     </div>
 </div>
+
+<!-- Toaster para mensagens -->
+<div id="toaster" class="toaster" style="display: none;">
+    <div class="toaster-content">
+        <div class="toaster-icon">
+            <i class="fas fa-check-circle"></i>
+        </div>
+        <div class="toaster-message" id="toaster-message">
+            Mensagem
+        </div>
+        <button type="button" class="toaster-close" onclick="hideToaster()">
+            <i class="fas fa-times"></i>
+        </button>
+    </div>
+</div>
+
+<script>
+// Funções para o modal de edição
+function openEditModal(button) {
+    const modelId = button.getAttribute('data-model-id');
+    const displayName = button.getAttribute('data-model-name');
+    const provider = button.getAttribute('data-model-provider');
+    const description = button.getAttribute('data-model-description');
+    const maxTokens = button.getAttribute('data-model-max-tokens');
+    const contextWindow = button.getAttribute('data-model-context-window');
+    const priceInput = button.getAttribute('data-model-price-input');
+    const priceOutput = button.getAttribute('data-model-price-output');
+    
+    document.getElementById('original_model_id').value = modelId;
+    document.getElementById('edit_provider').value = provider;
+    document.getElementById('edit_model_id').value = modelId;
+    document.getElementById('edit_display_name').value = displayName;
+    document.getElementById('edit_description').value = description || '';
+    document.getElementById('edit_max_tokens').value = maxTokens;
+    document.getElementById('edit_context_window').value = contextWindow;
+    document.getElementById('edit_price_input').value = priceInput;
+    document.getElementById('edit_price_output').value = priceOutput;
+    
+    document.getElementById('editModal').style.display = 'block';
+}
+
+function closeEditModal() {
+    document.getElementById('editModal').style.display = 'none';
+}
+
+// Fechar modal quando clicar fora dele
+window.onclick = function(event) {
+    const modal = document.getElementById('editModal');
+    if (event.target == modal) {
+        closeEditModal();
+    }
+}
+
+// Funções para o toaster
+function showToaster(message, type = 'success') {
+    const toaster = document.getElementById('toaster');
+    const toasterMessage = document.getElementById('toaster-message');
+    const toasterIcon = toaster.querySelector('.toaster-icon i');
+    
+    // Configurar mensagem
+    toasterMessage.textContent = message;
+    
+    // Configurar tipo e ícone
+    toaster.className = `toaster ${type}`;
+    
+    if (type === 'success') {
+        toasterIcon.className = 'fas fa-check-circle';
+    } else if (type === 'error') {
+        toasterIcon.className = 'fas fa-exclamation-circle';
+    } else if (type === 'warning') {
+        toasterIcon.className = 'fas fa-exclamation-triangle';
+    }
+    
+    // Mostrar toaster
+    toaster.style.display = 'block';
+    setTimeout(() => {
+        toaster.classList.add('show');
+    }, 10);
+    
+    // Auto-hide após 5 segundos
+    setTimeout(() => {
+        hideToaster();
+    }, 5000);
+}
+
+function hideToaster() {
+    const toaster = document.getElementById('toaster');
+    toaster.classList.remove('show');
+    setTimeout(() => {
+        toaster.style.display = 'none';
+    }, 300);
+}
+
+// Verificar se há mensagens flash para mostrar no toaster
+document.addEventListener('DOMContentLoaded', function() {
+    // Verificar se há mensagens flash do Flask
+    const flashMessages = document.querySelectorAll('.alert, .flash-message');
+    flashMessages.forEach(message => {
+        const text = message.textContent || message.innerText;
+        let type = 'success';
+        
+        if (message.classList.contains('error') || message.classList.contains('alert-danger')) {
+            type = 'error';
+        } else if (message.classList.contains('warning') || message.classList.contains('alert-warning')) {
+            type = 'warning';
+        }
+        
+        // Remover a mensagem flash original
+        message.remove();
+        
+        // Mostrar no toaster
+        showToaster(text, type);
+    });
+});
+</script>
 {% endblock %} 
