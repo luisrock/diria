@@ -51,6 +51,22 @@ def create_eproc_credentials_table():
         print("✅ Tabela eproc_credentials já existe")
         return False
 
+def create_ai_model_table():
+    """Cria a tabela AIModel se não existir"""
+    if not check_table_exists('ai_model'):
+        print("🔄 Criando tabela ai_model...")
+        
+        # Importar o modelo
+        from app import AIModel
+        
+        # Criar a tabela
+        AIModel.__table__.create(db.engine, checkfirst=True)
+        print("✅ Tabela ai_model criada com sucesso!")
+        return True
+    else:
+        print("✅ Tabela ai_model já existe")
+        return False
+
 def migrate_database():
     """Executa todas as migrações necessárias"""
     print("🚀 Iniciando migração do banco de dados...")
@@ -71,6 +87,7 @@ def migrate_database():
         migrations = [
             ("Tabela DebugRequest", create_debug_table),
             ("Tabela EprocCredentials", create_eproc_credentials_table),
+            ("Tabela AIModel", create_ai_model_table),
         ]
         
         # Executar migrações
