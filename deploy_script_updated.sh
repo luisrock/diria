@@ -255,8 +255,10 @@ except Exception as e:
         if [ $MODEL_CHECK_RESULT -ne 0 ]; then
             # Migrar modelos hardcoded para o banco de dados (apenas se não existirem)
             echo "🤖 Migrando modelos de IA para o banco de dados..."
-            python migrate_models_to_db.py
+            echo "🔍 Executando: python migrate_models_to_db.py"
             
+            # Executar migração com captura de erro detalhada
+            python migrate_models_to_db.py 2>&1
             MIGRATION_RESULT=$?
             echo "🔍 Resultado da migração: $MIGRATION_RESULT"
             
@@ -275,9 +277,27 @@ try:
     print(f'✅ {len(enabled_models)} modelos habilitados')
 except Exception as e:
     print(f'❌ Erro ao verificar modelos após migração: {e}')
+    import traceback
+    traceback.print_exc()
 "
             else
                 echo "❌ ERRO: Falha na migração de modelos!"
+                echo "🔍 Verificando se a tabela ai_model existe..."
+                python -c "
+try:
+    import sqlite3
+    conn = sqlite3.connect('instance/diria.db')
+    cursor = conn.cursor()
+    cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table' AND name='ai_model'\")
+    result = cursor.fetchone()
+    conn.close()
+    if result:
+        print('✅ Tabela ai_model existe')
+    else:
+        print('❌ Tabela ai_model não existe!')
+except Exception as e:
+    print(f'❌ Erro ao verificar tabela: {e}')
+"
                 echo "🔄 Restaurando backup..."
                 cp "$BACKUP_FILE" "instance/diria.db"
                 echo "✅ Backup restaurado. Verifique os logs e tente novamente."

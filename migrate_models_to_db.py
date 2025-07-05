@@ -16,6 +16,14 @@ from datetime import datetime, timezone
 def migrate_models_to_db():
     """Migra modelos hardcoded para o banco de dados"""
     print("🤖 Iniciando migração de modelos hardcoded para o banco de dados...")
+    print("🔍 Verificando ambiente...")
+    
+    try:
+        from app import app, db, AIModel
+        print("✅ Imports do app realizados com sucesso")
+    except Exception as e:
+        print(f"❌ Erro nos imports do app: {e}")
+        return False
     
     # Modelos hardcoded atuais
     hardcoded_models = [
@@ -92,10 +100,12 @@ def migrate_models_to_db():
     
     with app.app_context():
         try:
+            print("🔍 Verificando se a tabela AIModel existe...")
             # Verificar se a tabela existe
             try:
                 # Tentar fazer uma query simples para verificar se a tabela existe
-                AIModel.query.first()
+                result = AIModel.query.first()
+                print(f"✅ Tabela AIModel existe (primeiro registro: {result})")
             except Exception as e:
                 print(f"❌ Tabela AIModel não existe: {e}")
                 print("💡 Execute primeiro: python -c 'from app import app, db; app.app_context().push(); db.create_all()'")
