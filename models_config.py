@@ -10,10 +10,11 @@ Facilita a adição de novos modelos conforme são lançados
 def get_all_models() -> list:
     """Retorna lista de todos os modelos disponíveis (apenas do banco)"""
     try:
-        from app import AIModel
-        # Carregar do banco
-        db_models = AIModel.query.filter_by(is_enabled=True).all()
-        return [model.model_id for model in db_models]
+        from app import app, AIModel
+        with app.app_context():
+            # Carregar do banco
+            db_models = AIModel.query.filter_by(is_enabled=True).all()
+            return [model.model_id for model in db_models]
     except Exception as e:
         print(f"⚠️  Erro ao carregar modelos do banco: {e}")
         return []  # Retornar lista vazia se não conseguir acessar banco
