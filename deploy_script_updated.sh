@@ -230,60 +230,9 @@ else
     if [ $? -eq 0 ]; then
         echo "✅ Migração consolidada concluída!"
         
-        # Verificar se os modelos já foram migrados
-        echo "🔍 Verificando se modelos já foram migrados..."
+        # Verificar se a tabela ai_model existe
+        echo "🔍 Verificando se a tabela ai_model existe..."
         python -c "
-try:
-    from app import app, AIModel
-    app.app_context().push()
-    models = AIModel.query.all()
-    print(f'Encontrados {len(models)} modelos no banco')
-    if len(models) > 0:
-        print('✅ Modelos encontrados - migração não necessária')
-        exit(0)
-    else:
-        print('⚠️  Nenhum modelo encontrado - migração necessária')
-        exit(1)
-except Exception as e:
-    print(f'❌ Erro ao verificar modelos: {e}')
-    exit(1)
-"
-        
-        MODEL_CHECK_RESULT=$?
-        echo "🔍 Resultado da verificação: $MODEL_CHECK_RESULT"
-        
-        if [ $MODEL_CHECK_RESULT -ne 0 ]; then
-            # Migrar modelos hardcoded para o banco de dados (apenas se não existirem)
-            echo "🤖 Migrando modelos de IA para o banco de dados..."
-            echo "🔍 Executando: python migrate_models_to_db.py"
-            
-            # Executar migração com captura de erro detalhada
-            python migrate_models_to_db.py 2>&1
-            MIGRATION_RESULT=$?
-            echo "🔍 Resultado da migração: $MIGRATION_RESULT"
-            
-            if [ $MIGRATION_RESULT -eq 0 ]; then
-                echo "✅ Modelos migrados com sucesso!"
-                
-                # Verificar novamente após migração
-                echo "🔍 Verificando modelos após migração..."
-                python -c "
-try:
-    from app import app, AIModel
-    app.app_context().push()
-    models = AIModel.query.all()
-    print(f'✅ {len(models)} modelos encontrados após migração')
-    enabled_models = [m for m in models if m.is_enabled]
-    print(f'✅ {len(enabled_models)} modelos habilitados')
-except Exception as e:
-    print(f'❌ Erro ao verificar modelos após migração: {e}')
-    import traceback
-    traceback.print_exc()
-"
-            else
-                echo "❌ ERRO: Falha na migração de modelos!"
-                echo "🔍 Verificando se a tabela ai_model existe..."
-                python -c "
 try:
     import sqlite3
     conn = sqlite3.connect('instance/diria.db')
@@ -293,18 +242,25 @@ try:
     conn.close()
     if result:
         print('✅ Tabela ai_model existe')
+        exit(0)
     else:
         print('❌ Tabela ai_model não existe!')
+        exit(1)
 except Exception as e:
     print(f'❌ Erro ao verificar tabela: {e}')
+    exit(1)
 "
-                echo "🔄 Restaurando backup..."
-                cp "$BACKUP_FILE" "instance/diria.db"
-                echo "✅ Backup restaurado. Verifique os logs e tente novamente."
-                exit 1
-            fi
+        
+        if [ $? -eq 0 ]; then
+            echo "✅ Estrutura do banco está correta"
+            echo "💡 IMPORTANTE: Configure os modelos via painel administrativo"
+            echo "   Acesse: https://diria.com.br/admin/config"
         else
-            echo "ℹ️  Modelos já migrados - pulando migração"
+            echo "❌ ERRO: Tabela ai_model não existe!"
+            echo "🔄 Restaurando backup..."
+            cp "$BACKUP_FILE" "instance/diria.db"
+            echo "✅ Backup restaurado. Verifique os logs e tente novamente."
+            exit 1
         fi
         
         # Verificar se a tabela model_status ainda existe
@@ -466,14 +422,13 @@ echo "🔑 IMPORTANTE: Configure as chaves de API via painel administrativo!"
 echo "   Acesse: https://diria.com.br/admin/api_keys"
 echo "   Ou use o arquivo .env como fallback"
 echo ""
-echo "🤖 NOVO: Sistema de modelos dinâmicos ativo!"
-echo "   - Modelos agora são gerenciados via banco de dados"
+echo "🤖 SISTEMA DE MODELOS DINÂMICOS:"
+echo "   - Modelos são gerenciados via painel administrativo"
 echo "   - Acesse: https://diria.com.br/admin/config"
-echo "   - Habilite/desabilite modelos conforme necessário"
+echo "   - Adicione e configure os modelos conforme necessário"
 echo ""
-echo "📋 Próximos passos:"
+echo "📋 PRÓXIMOS PASSOS:"
 echo "   1. Acesse o painel admin: https://diria.com.br/admin"
-echo "   2. Vá em 'Gerenciar Chaves de API'"
-echo "   3. Configure as chaves de OpenAI, Anthropic e Google"
-echo "   4. Vá em 'Configurações' para gerenciar modelos de IA"
-echo "   5. Teste a geração de minutas" 
+echo "   2. Vá em 'Gerenciar Chaves de API' e configure as chaves"
+echo "   3. Vá em 'Configurações' e adicione os modelos de IA"
+echo "   4. Teste a geração de minutas" 
