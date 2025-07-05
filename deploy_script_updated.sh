@@ -238,21 +238,50 @@ try:
     app.app_context().push()
     models = AIModel.query.all()
     print(f'Encontrados {len(models)} modelos no banco')
-    exit(0 if len(models) > 0 else 1)
+    if len(models) > 0:
+        print('✅ Modelos encontrados - migração não necessária')
+        exit(0)
+    else:
+        print('⚠️  Nenhum modelo encontrado - migração necessária')
+        exit(1)
 except Exception as e:
-    print(f'Erro ao verificar modelos: {e}')
+    print(f'❌ Erro ao verificar modelos: {e}')
     exit(1)
-" 2>/dev/null
+"
         
-        if [ $? -ne 0 ]; then
+        MODEL_CHECK_RESULT=$?
+        echo "🔍 Resultado da verificação: $MODEL_CHECK_RESULT"
+        
+        if [ $MODEL_CHECK_RESULT -ne 0 ]; then
             # Migrar modelos hardcoded para o banco de dados (apenas se não existirem)
             echo "🤖 Migrando modelos de IA para o banco de dados..."
             python migrate_models_to_db.py
             
-            if [ $? -eq 0 ]; then
+            MIGRATION_RESULT=$?
+            echo "🔍 Resultado da migração: $MIGRATION_RESULT"
+            
+            if [ $MIGRATION_RESULT -eq 0 ]; then
                 echo "✅ Modelos migrados com sucesso!"
+                
+                # Verificar novamente após migração
+                echo "🔍 Verificando modelos após migração..."
+                python -c "
+try:
+    from app import app, AIModel
+    app.app_context().push()
+    models = AIModel.query.all()
+    print(f'✅ {len(models)} modelos encontrados após migração')
+    enabled_models = [m for m in models if m.is_enabled]
+    print(f'✅ {len(enabled_models)} modelos habilitados')
+except Exception as e:
+    print(f'❌ Erro ao verificar modelos após migração: {e}')
+"
             else
-                echo "⚠️  Aviso: Falha na migração de modelos (sistema continuará funcionando)"
+                echo "❌ ERRO: Falha na migração de modelos!"
+                echo "🔄 Restaurando backup..."
+                cp "$BACKUP_FILE" "instance/diria.db"
+                echo "✅ Backup restaurado. Verifique os logs e tente novamente."
+                exit 1
             fi
         else
             echo "ℹ️  Modelos já migrados - pulando migração"
