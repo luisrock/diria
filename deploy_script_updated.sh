@@ -263,36 +263,8 @@ except Exception as e:
             exit 1
         fi
         
-        # Verificar se a tabela model_status ainda existe
-        echo "🔍 Verificando se limpeza já foi executada..."
-        python -c "
-try:
-    import sqlite3
-    conn = sqlite3.connect('instance/diria.db')
-    cursor = conn.cursor()
-    cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table' AND name='model_status'\")
-    result = cursor.fetchone()
-    conn.close()
-    print(f'Tabela model_status: {\"existe\" if result else \"não existe\"}')
-    exit(0 if result else 1)
-except Exception as e:
-    print(f'Erro ao verificar tabela model_status: {e}')
-    exit(1)
-" 2>/dev/null
-        
-        if [ $? -eq 0 ]; then
-            # Limpar tabelas desnecessárias (apenas se ainda existirem)
-            echo "🧹 Limpando tabelas desnecessárias..."
-            python cleanup_db.py
-            
-            if [ $? -eq 0 ]; then
-                echo "✅ Limpeza do banco concluída!"
-            else
-                echo "⚠️  Aviso: Falha na limpeza do banco (sistema continuará funcionando)"
-            fi
-        else
-            echo "ℹ️  Limpeza já executada - pulando limpeza"
-        fi
+        # Limpeza já foi executada anteriormente - pulando limpeza
+        echo "ℹ️  Limpeza já executada - pulando limpeza"
         
         # Verificar integridade do banco após migração
         echo "🔍 Verificando integridade do banco de dados..."
