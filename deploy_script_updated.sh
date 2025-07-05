@@ -233,11 +233,15 @@ else
         # Verificar se os modelos já foram migrados
         echo "🔍 Verificando se modelos já foram migrados..."
         python -c "
-from app import app, AIModel
-app.app_context().push()
-models = AIModel.query.all()
-print(f'Encontrados {len(models)} modelos no banco')
-exit(0 if len(models) > 0 else 1)
+try:
+    from app import app, AIModel
+    app.app_context().push()
+    models = AIModel.query.all()
+    print(f'Encontrados {len(models)} modelos no banco')
+    exit(0 if len(models) > 0 else 1)
+except Exception as e:
+    print(f'Erro ao verificar modelos: {e}')
+    exit(1)
 " 2>/dev/null
         
         if [ $? -ne 0 ]; then
@@ -257,13 +261,18 @@ exit(0 if len(models) > 0 else 1)
         # Verificar se a tabela model_status ainda existe
         echo "🔍 Verificando se limpeza já foi executada..."
         python -c "
-import sqlite3
-conn = sqlite3.connect('instance/diria.db')
-cursor = conn.cursor()
-cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table' AND name='model_status'\")
-result = cursor.fetchone()
-conn.close()
-exit(0 if result else 1)
+try:
+    import sqlite3
+    conn = sqlite3.connect('instance/diria.db')
+    cursor = conn.cursor()
+    cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table' AND name='model_status'\")
+    result = cursor.fetchone()
+    conn.close()
+    print(f'Tabela model_status: {\"existe\" if result else \"não existe\"}')
+    exit(0 if result else 1)
+except Exception as e:
+    print(f'Erro ao verificar tabela model_status: {e}')
+    exit(1)
 " 2>/dev/null
         
         if [ $? -eq 0 ]; then
@@ -290,12 +299,15 @@ exit(0 if result else 1)
             # Verificar se os modelos estão funcionando corretamente
             echo "🤖 Verificando modelos de IA..."
             python -c "
-from app import app, AIModel
-app.app_context().push()
-models = AIModel.query.all()
-print(f'✅ {len(models)} modelos encontrados no banco')
-enabled_models = [m for m in models if m.is_enabled]
-print(f'✅ {len(enabled_models)} modelos habilitados')
+try:
+    from app import app, AIModel
+    app.app_context().push()
+    models = AIModel.query.all()
+    print(f'✅ {len(models)} modelos encontrados no banco')
+    enabled_models = [m for m in models if m.is_enabled]
+    print(f'✅ {len(enabled_models)} modelos habilitados')
+except Exception as e:
+    print(f'⚠️  Erro ao verificar modelos: {e}')
 "
         else
             echo "❌ ERRO: Problemas de integridade detectados no banco!"
