@@ -54,11 +54,105 @@
         </form>
     </div>
 
-    <!-- Informações dos Modelos -->
+    <!-- Adicionar Novo Modelo -->
     <div class="bg-white shadow-lg rounded-lg p-6">
         <h3 class="text-lg font-medium text-gray-900 mb-4">
-            <i class="fas fa-info-circle mr-2 text-green-600"></i>
-            Modelos Disponíveis
+            <i class="fas fa-plus-circle mr-2 text-green-600"></i>
+            Adicionar Novo Modelo
+        </h3>
+        
+        <form method="POST" class="space-y-4">
+            <input type="hidden" name="action" value="add_model">
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label for="provider" class="block text-sm font-medium text-gray-700 mb-2">
+                        Provider *
+                    </label>
+                    <select id="provider" name="provider" required
+                            class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                        <option value="">Selecione o provider</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="anthropic">Anthropic</option>
+                        <option value="google">Google</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label for="model_id" class="block text-sm font-medium text-gray-700 mb-2">
+                        ID do Modelo *
+                    </label>
+                    <input type="text" id="model_id" name="model_id" required
+                           placeholder="ex: gpt-4, claude-3-sonnet"
+                           class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                </div>
+                
+                <div>
+                    <label for="display_name" class="block text-sm font-medium text-gray-700 mb-2">
+                        Nome para Exibição *
+                    </label>
+                    <input type="text" id="display_name" name="display_name" required
+                           placeholder="ex: GPT-4, Claude Sonnet"
+                           class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                </div>
+                
+                <div>
+                    <label for="description" class="block text-sm font-medium text-gray-700 mb-2">
+                        Descrição
+                    </label>
+                    <input type="text" id="description" name="description"
+                           placeholder="Descrição do modelo"
+                           class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                </div>
+                
+                <div>
+                    <label for="max_tokens" class="block text-sm font-medium text-gray-700 mb-2">
+                        Máximo de Tokens de Saída
+                    </label>
+                    <input type="number" id="max_tokens" name="max_tokens" value="32768"
+                           class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                </div>
+                
+                <div>
+                    <label for="context_window" class="block text-sm font-medium text-gray-700 mb-2">
+                        Janela de Contexto
+                    </label>
+                    <input type="number" id="context_window" name="context_window" value="32768"
+                           class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                </div>
+                
+                <div>
+                    <label for="price_input" class="block text-sm font-medium text-gray-700 mb-2">
+                        Preço por MTok Entrada (USD)
+                    </label>
+                    <input type="number" id="price_input" name="price_input" value="0" step="0.01"
+                           class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                </div>
+                
+                <div>
+                    <label for="price_output" class="block text-sm font-medium text-gray-700 mb-2">
+                        Preço por MTok Saída (USD)
+                    </label>
+                    <input type="number" id="price_output" name="price_output" value="0" step="0.01"
+                           class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                </div>
+            </div>
+            
+            <div class="flex justify-end">
+                <button type="submit" 
+                        class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                    <i class="fas fa-plus mr-2"></i>
+                    Adicionar Modelo
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Gerenciar Modelos Existentes -->
+    <div class="bg-white shadow-lg rounded-lg p-6">
+        <h3 class="text-lg font-medium text-gray-900 mb-4">
+            <i class="fas fa-cogs mr-2 text-blue-600"></i>
+            Gerenciar Modelos Existentes
         </h3>
         
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -79,9 +173,21 @@
                     </div>
                 </div>
                 <p class="text-xs text-gray-600 mb-2">{{ model.description }}</p>
-                <p class="text-xs text-gray-500 mb-3">
+                <p class="text-xs text-gray-500 mb-2">
                     <i class="fas fa-building mr-1"></i>{{ model.provider }}
                 </p>
+                
+                <!-- Preços por MTok -->
+                <div class="text-xs text-gray-600 mb-3 space-y-1">
+                    <div class="flex justify-between">
+                        <span><i class="fas fa-arrow-down mr-1"></i>Input:</span>
+                        <span class="font-medium">${{ "%.2f"|format(model.cost_per_1k_input) }}/MTok</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span><i class="fas fa-arrow-up mr-1"></i>Output:</span>
+                        <span class="font-medium">${{ "%.2f"|format(model.cost_per_1k_output) }}/MTok</span>
+                    </div>
+                </div>
                 
                 <!-- Controles de Status -->
                 <div class="flex justify-between items-center">
@@ -110,13 +216,15 @@
         <div class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
             <h4 class="text-sm font-medium text-blue-900 mb-2">
                 <i class="fas fa-info-circle mr-2"></i>
-                Informações sobre o Controle de Modelos
+                Informações sobre o Gerenciamento de Modelos
             </h4>
             <ul class="text-sm text-blue-800 space-y-1">
+                <li>• <strong>Adicionar Modelo:</strong> Preencha todos os campos obrigatórios (*) para adicionar um novo modelo</li>
                 <li>• <strong>Modelos Habilitados:</strong> Aparecem para os usuários no sistema</li>
                 <li>• <strong>Modelos Desabilitados:</strong> Não aparecem para os usuários, mas permanecem configurados</li>
                 <li>• <strong>Modelo Padrão:</strong> Sempre deve estar habilitado para funcionar corretamente</li>
                 <li>• <strong>Alterações:</strong> São aplicadas imediatamente após salvar</li>
+                <li>• <strong>ID do Modelo:</strong> Deve ser único e corresponder ao ID real da API (ex: gpt-4, claude-3-sonnet)</li>
             </ul>
         </div>
     </div>

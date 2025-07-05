@@ -109,7 +109,7 @@ def show_status():
             'user', 'prompt', 'usage_log', 'app_config', 
             'general_instructions', 
             'api_key', 'eproc_credentials', 'dollar_rate', 
-            'model_status', 'debug_request'
+            'ai_model', 'debug_request'
         ]
         
         print(f"\n🔍 Verificação de tabelas obrigatórias:")

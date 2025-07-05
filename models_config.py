@@ -3,125 +3,67 @@ Configuração dos modelos de IA por fabricante
 Facilita a adição de novos modelos conforme são lançados
 """
 
-# Configuração dos modelos por fabricante
-MODELS_CONFIG = {
-    "openai": {
-        "name": "OpenAI",
-        "prefix": "o",
-        "encoder": "gpt",  # Usa encoder específico do modelo
-        "models": {
-            "o3-2025-04-16": {
-                "display_name": "O3",
-                "description": "Our most powerful reasoning model, but slow",
-                "max_tokens": 100000,
-                "context_window": 200000,
-                "price_input": 2.0,  # $2 / MTok
-                "price_output": 8.0,  # $8 / MTok
-                "available": True
-            },
-            "o4-mini-2025-04-16": {
-                "display_name": "O4 Mini",
-                "description": "Faster, more affordable reasoning model",
-                "max_tokens": 100000,
-                "context_window": 200000,
-                "price_input": 1.10,  # $1.10 / MTok
-                "price_output": 4.40,  # $4.40 / MTok
-                "available": True
-            }
-        }
-    },
-    
-    "anthropic": {
-        "name": "Anthropic",
-        "prefix": "claude-",
-        "encoder": "cl100k_base",  # Claude usa cl100k_base
-        "models": {
-            "claude-sonnet-4-20250514": {
-                "display_name": "Claude Sonnet 4",
-                "description": "High-performance model",
-                "max_tokens": 64000,
-                "context_window": 200000,
-                "price_input": 3.0,  # $3 / MTok
-                "price_output": 15.0,  # $15 / MTok
-                "available": True
-            },
-            "claude-3-7-sonnet-20250219": {
-                "display_name": "Claude Sonnet 3.7",
-                "description": "High-performance model with early extended thinking",
-                "max_tokens": 64000,
-                "context_window": 200000,
-                "price_input": 3.0,  # $3 / MTok
-                "price_output": 15.0,  # $15 / MTok
-                "available": True
-            }
-        }
-    },
-    
-    "google": {
-        "name": "Google",
-        "prefix": "gemini-",
-        "encoder": "cl100k_base",  # Aproximação para Gemini
-        "models": {
-            "gemini-2.5-pro": {
-                "display_name": "Gemini 2.5 Pro",
-                "description": "State-of-the-art thinking model",
-                "max_tokens": 65000,
-                "context_window": 1000000,
-                "price_input": 2.50,  # $2.50 / MTok
-                "price_output": 15.0,  # $15 / MTok
-                "available": True
-            },
-            "gemini-2.5-flash": {
-                "display_name": "Gemini 2.5 Flash",
-                "description": "Our best model in terms of price-performance, offering well-rounded capabilities",
-                "max_tokens": 65000,
-                "context_window": 1000000,
-                "price_input": 0.30,  # $0.30 / MTok
-                "price_output": 2.50,  # $2.50 / MTok
-                "available": True
-            }
-        }
-    }
-}
+# Configuração dos modelos de IA por fabricante
+# NOTA: Esta configuração foi migrada para o banco de dados
+# Os modelos agora são gerenciados dinamicamente através da tabela AIModel
 
 def get_all_models() -> list:
-    """Retorna lista de todos os modelos disponíveis"""
-    models = []
-    for provider, config in MODELS_CONFIG.items():
-        for model_id, model_info in config["models"].items():
-            if model_info["available"]:
-                models.append(model_id)
-    return models
+    """Retorna lista de todos os modelos disponíveis (apenas do banco)"""
+    try:
+        from app import AIModel
+        # Carregar do banco
+        db_models = AIModel.query.filter_by(is_enabled=True).all()
+        return [model.model_id for model in db_models]
+    except Exception as e:
+        print(f"⚠️  Erro ao carregar modelos do banco: {e}")
+        return []  # Retornar lista vazia se não conseguir acessar banco
 
 def get_models_by_provider(provider: str) -> list:
-    """Retorna lista de modelos de um fabricante específico"""
-    if provider not in MODELS_CONFIG:
+    """Retorna lista de modelos de um fabricante específico (apenas do banco)"""
+    try:
+        from app import app, AIModel
+        with app.app_context():
+            models = AIModel.query.filter_by(provider=provider, is_enabled=True).all()
+            return [model.model_id for model in models]
+    except Exception as e:
+        print(f"⚠️  Erro ao carregar modelos do provedor {provider}: {e}")
         return []
-    
-    models = []
-    for model_id, model_info in MODELS_CONFIG[provider]["models"].items():
-        if model_info["available"]:
-            models.append(model_id)
-    return models
 
 def get_model_info(model_id: str) -> dict:
-    """Retorna informações de um modelo específico"""
-    for provider, config in MODELS_CONFIG.items():
-        if model_id in config["models"]:
-            return {
-                "provider": provider,
-                "provider_name": config["name"],
-                "model_id": model_id,
-                **config["models"][model_id]
-            }
-    return None
+    """Retorna informações de um modelo específico (apenas do banco)"""
+    try:
+        from app import app, AIModel
+        with app.app_context():
+            # Buscar no banco (sem filtrar por is_enabled)
+            model = AIModel.query.filter_by(model_id=model_id).first()
+            if model:
+                return {
+                    "provider": model.provider,
+                    "provider_name": model.provider.title(),
+                    "model_id": model.model_id,
+                    "display_name": model.display_name,
+                    "description": model.description,
+                    "max_tokens": model.max_tokens,
+                    "context_window": model.context_window,
+                    "price_input": model.price_input,
+                    "price_output": model.price_output,
+                    "available": model.is_enabled
+                }
+    except Exception as e:
+        print(f"⚠️  Erro ao buscar modelo no banco: {e}")
+    
+    return None  # Retornar None se não encontrar no banco
 
 def get_provider_for_model(model_id: str) -> str:
-    """Retorna o fabricante de um modelo"""
-    for provider, config in MODELS_CONFIG.items():
-        if model_id in config["models"]:
-            return provider
-    return None
+    """Retorna o fabricante de um modelo (apenas do banco)"""
+    try:
+        from app import app, AIModel
+        with app.app_context():
+            model = AIModel.query.filter_by(model_id=model_id).first()
+            return model.provider if model else None
+    except Exception as e:
+        print(f"⚠️  Erro ao buscar provedor do modelo: {e}")
+        return None
 
 def calculate_cost(request_tokens: int, response_tokens: int, model_id: str) -> dict:
     """
@@ -160,7 +102,7 @@ def calculate_cost(request_tokens: int, response_tokens: int, model_id: str) -> 
 
 def add_new_model(provider: str, model_id: str, display_name: str, description: str, max_tokens: int = 32768, context_window: int = 32768, price_input: float = 0, price_output: float = 0):
     """
-    Adiciona um novo modelo à configuração
+    Adiciona um novo modelo ao banco de dados
     
     Args:
         provider: Fabricante (openai, anthropic, google)
@@ -172,52 +114,92 @@ def add_new_model(provider: str, model_id: str, display_name: str, description: 
         price_input: Preço por MTok de entrada
         price_output: Preço por MTok de saída
     """
-    if provider not in MODELS_CONFIG:
-        raise ValueError(f"Fabricante '{provider}' não suportado")
-    
-    MODELS_CONFIG[provider]["models"][model_id] = {
-        "display_name": display_name,
-        "description": description,
-        "max_tokens": max_tokens,
-        "context_window": context_window,
-        "price_input": price_input,
-        "price_output": price_output,
-        "available": True
-    }
-    
-    print(f"✅ Modelo '{model_id}' adicionado ao fabricante '{provider}'")
+    try:
+        from app import app, AIModel, db
+        with app.app_context():
+            # Verificar se o modelo já existe
+            existing = AIModel.query.filter_by(model_id=model_id).first()
+            if existing:
+                print(f"⚠️  Modelo '{model_id}' já existe no banco")
+                return
+            
+            # Criar novo modelo
+            model = AIModel(
+                name=model_id,  # Usar model_id como name
+                provider=provider,
+                model_id=model_id,
+                display_name=display_name,
+                description=description,
+                max_tokens=max_tokens,
+                context_window=context_window,
+                price_input=price_input,
+                price_output=price_output,
+                is_enabled=True
+            )
+            db.session.add(model)
+            db.session.commit()
+            print(f"✅ Modelo '{model_id}' adicionado ao banco")
+    except Exception as e:
+        print(f"❌ Erro ao adicionar modelo: {e}")
 
 def disable_model(model_id: str):
-    """Desabilita um modelo"""
-    for provider, config in MODELS_CONFIG.items():
-        if model_id in config["models"]:
-            config["models"][model_id]["available"] = False
-            print(f"✅ Modelo '{model_id}' desabilitado")
-            return
-    
-    print(f"❌ Modelo '{model_id}' não encontrado")
+    """Desabilita um modelo no banco"""
+    try:
+        from app import app, AIModel, db
+        with app.app_context():
+            model = AIModel.query.filter_by(model_id=model_id).first()
+            if model:
+                model.is_enabled = False
+                db.session.commit()
+                print(f"✅ Modelo '{model_id}' desabilitado")
+            else:
+                print(f"❌ Modelo '{model_id}' não encontrado")
+    except Exception as e:
+        print(f"❌ Erro ao desabilitar modelo: {e}")
 
 def enable_model(model_id: str):
-    """Habilita um modelo"""
-    for provider, config in MODELS_CONFIG.items():
-        if model_id in config["models"]:
-            config["models"][model_id]["available"] = True
-            print(f"✅ Modelo '{model_id}' habilitado")
-            return
-    
-    print(f"❌ Modelo '{model_id}' não encontrado")
+    """Habilita um modelo no banco"""
+    try:
+        from app import app, AIModel, db
+        with app.app_context():
+            model = AIModel.query.filter_by(model_id=model_id).first()
+            if model:
+                model.is_enabled = True
+                db.session.commit()
+                print(f"✅ Modelo '{model_id}' habilitado")
+            else:
+                print(f"❌ Modelo '{model_id}' não encontrado")
+    except Exception as e:
+        print(f"❌ Erro ao habilitar modelo: {e}")
 
 def list_models_by_provider():
-    """Lista todos os modelos organizados por fabricante"""
-    for provider, config in MODELS_CONFIG.items():
-        print(f"\n🔹 {config['name']}:")
-        for model_id, model_info in config["models"].items():
-            status = "✅" if model_info["available"] else "❌"
-            print(f"  {status} {model_id} - {model_info['display_name']}")
-            print(f"     {model_info['description']}")
-            print(f"     Context Window: {model_info['context_window']:,} tokens")
-            print(f"     Max Output: {model_info['max_tokens']:,} tokens")
-            print(f"     Price: ${model_info['price_input']}/MTok input, ${model_info['price_output']}/MTok output")
+    """Lista todos os modelos organizados por fabricante (apenas do banco)"""
+    try:
+        from app import app, AIModel
+        with app.app_context():
+            models = AIModel.query.all()
+            if not models:
+                print("📭 Nenhum modelo encontrado no banco")
+                return
+            
+            # Agrupar por provedor
+            by_provider = {}
+            for model in models:
+                if model.provider not in by_provider:
+                    by_provider[model.provider] = []
+                by_provider[model.provider].append(model)
+            
+            for provider, provider_models in by_provider.items():
+                print(f"\n🔹 {provider.title()}:")
+                for model in provider_models:
+                    status = "✅" if model.is_enabled else "❌"
+                    print(f"  {status} {model.model_id} - {model.display_name}")
+                    print(f"     {model.description}")
+                    print(f"     Context Window: {model.context_window:,} tokens")
+                    print(f"     Max Output: {model.max_tokens:,} tokens")
+                    print(f"     Price: ${model.price_input}/MTok input, ${model.price_output}/MTok output")
+    except Exception as e:
+        print(f"❌ Erro ao listar modelos: {e}")
 
 # Exemplo de uso para adicionar novos modelos:
 if __name__ == "__main__":

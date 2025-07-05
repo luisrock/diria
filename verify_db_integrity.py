@@ -71,7 +71,7 @@ def verify_database_integrity():
         print(f"  📝 Prompts: {prompt_count}")
         
         # Verificar se há modelos habilitados
-        cursor.execute("SELECT COUNT(*) FROM model_status WHERE is_enabled = 1")
+        cursor.execute("SELECT COUNT(*) FROM ai_model WHERE is_enabled = 1")
         enabled_models = cursor.fetchone()[0]
         print(f"  🤖 Modelos habilitados: {enabled_models}")
         

@@ -420,15 +420,26 @@ class DollarRate(db.Model):
     def __repr__(self):
         return f'<DollarRate {self.date}: {self.rate}>'
 
-class ModelStatus(db.Model):
+
+
+class AIModel(db.Model):
+    """Modelo para armazenar modelos de IA dinamicamente"""
     id = db.Column(db.Integer, primary_key=True)
-    model_id = db.Column(db.String(100), unique=True, nullable=False)
+    name = db.Column(db.String(100), unique=True, nullable=False)  # ID interno
+    provider = db.Column(db.String(50), nullable=False)  # openai, anthropic, google
+    model_id = db.Column(db.String(100), unique=True, nullable=False)  # ID real da API
+    display_name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    max_tokens = db.Column(db.Integer, default=32768)
+    context_window = db.Column(db.Integer, default=32768)
+    price_input = db.Column(db.Float, default=0.0)  # Preço por MTok entrada
+    price_output = db.Column(db.Float, default=0.0)  # Preço por MTok saída
     is_enabled = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
     
     def __repr__(self):
-        return f'<ModelStatus {self.model_id}: {"enabled" if self.is_enabled else "disabled"}>'
+        return f'<AIModel {self.display_name} ({self.provider})>'
 
 class DebugRequest(db.Model):
     """Modelo para armazenar requisições de debug da IA"""
@@ -608,54 +619,107 @@ def get_dollar_rate():
 
 def get_model_status(model_id):
     """Obtém o status de um modelo específico"""
-    status = ModelStatus.query.filter_by(model_id=model_id).first()
-    return status.is_enabled if status else True  # Por padrão, habilitado
+    try:
+        model = AIModel.query.filter_by(model_id=model_id).first()
+        return model.is_enabled if model else False
+    except Exception as e:
+        print(f"⚠️  Erro ao buscar modelo no banco: {e}")
+        return False
 
 def set_model_status(model_id, is_enabled):
     """Define o status de um modelo"""
-    status = ModelStatus.query.filter_by(model_id=model_id).first()
-    if status:
-        status.is_enabled = is_enabled
-        status.updated_at = datetime.now(timezone.utc)
-    else:
-        status = ModelStatus(model_id=model_id, is_enabled=is_enabled)
-        db.session.add(status)
-    db.session.commit()
+    try:
+        model = AIModel.query.filter_by(model_id=model_id).first()
+        if model:
+            model.is_enabled = is_enabled
+            model.updated_at = datetime.now(timezone.utc)
+            db.session.commit()
+        else:
+            print(f"⚠️  Modelo {model_id} não encontrado no banco")
+    except Exception as e:
+        print(f"⚠️  Erro ao atualizar status do modelo: {e}")
 
 def get_enabled_models():
     """Obtém lista de modelos habilitados"""
-    from models_config import get_all_models
-    all_models = get_all_models()
-    enabled_models = []
-    
-    for model_id in all_models:
-        if get_model_status(model_id):
-            enabled_models.append(model_id)
-    
-    return enabled_models
+    try:
+        models = AIModel.query.filter_by(is_enabled=True).all()
+        return [model.model_id for model in models]
+    except Exception as e:
+        print(f"⚠️  Erro ao carregar modelos habilitados: {e}")
+        return []
 
 def get_all_models_with_status():
-    """Retorna todos os modelos com status de habilitação"""
-    from models_config import get_all_models, get_model_info
-    models = get_all_models()
-    models_with_status = []
+    """Retorna todos os modelos com status de habilitação (apenas do banco)"""
+    try:
+        with app.app_context():
+            models = AIModel.query.all()
+            models_with_status = []
+            
+            for model in models:
+                models_with_status.append({
+                    'id': model.model_id,
+                    'name': model.display_name,
+                    'provider': model.provider,
+                    'is_enabled': model.is_enabled,
+                    'description': model.description or '',
+                    'max_tokens': model.max_tokens,
+                    'cost_per_1k_input': model.price_input,
+                    'cost_per_1k_output': model.price_output
+                })
+            
+            return models_with_status
+    except Exception as e:
+        print(f"⚠️  Erro ao carregar modelos do banco: {e}")
+        return []
+
+def get_models_for_dropdown():
+    """Retorna modelos formatados para dropdowns (apenas do banco)"""
+    try:
+        with app.app_context():
+            models = AIModel.query.filter_by(is_enabled=True).all()
+            return [{
+                'id': model.model_id,
+                'name': model.display_name,
+                'provider': model.provider,
+                'description': model.description
+            } for model in models]
+    except Exception as e:
+        print(f"⚠️  Erro ao carregar modelos do banco: {e}")
+        return []  # Retornar lista vazia se não conseguir acessar banco
+
+def get_default_model():
+    """Retorna modelo padrão do banco ou configuração"""
+    try:
+        with app.app_context():
+            default_model = AIModel.query.filter_by(is_enabled=True).first()
+            if default_model:
+                return default_model.model_id
+    except:
+        pass
+    return get_app_config('default_ai_model', 'gemini-2.5-pro')
+
+def get_model_info_safe(model_id: str) -> dict:
+    """Busca modelo apenas do banco"""
+    try:
+        with app.app_context():
+            model = AIModel.query.filter_by(model_id=model_id, is_enabled=True).first()
+            if model:
+                return {
+                    "provider": model.provider,
+                    "provider_name": model.provider.title(),
+                    "model_id": model.model_id,
+                    "display_name": model.display_name,
+                    "description": model.description,
+                    "max_tokens": model.max_tokens,
+                    "context_window": model.context_window,
+                    "price_input": model.price_input,
+                    "price_output": model.price_output,
+                    "available": model.is_enabled
+                }
+    except Exception as e:
+        print(f"⚠️  Erro ao buscar modelo no banco: {e}")
     
-    for model_id in models:
-        model_info = get_model_info(model_id)
-        if model_info:
-            is_enabled = get_model_status(model_id)
-            models_with_status.append({
-                'id': model_id,
-                'name': model_info.get('display_name', model_id),
-                'provider': model_info.get('provider', 'unknown'),
-                'is_enabled': is_enabled,
-                'description': model_info.get('description', ''),
-                'max_tokens': model_info.get('max_tokens', 4000),
-                'cost_per_1k_input': model_info.get('price_input', 0),
-                'cost_per_1k_output': model_info.get('price_output', 0)
-            })
-    
-    return models_with_status
+    return None  # Retornar None se não encontrar no banco
 
 def format_cost_for_user(cost_usd):
     """
@@ -962,14 +1026,14 @@ def generate_minuta():
         response_data = {
             'minuta': minuta,
             'tokens_info': {
-                'request_tokens': tokens_info['request_tokens'],
-                'response_tokens': tokens_info['response_tokens'],
-                'total_tokens': tokens_info['total_tokens'],
-                'model_used': tokens_info['model_used'],
-                'success': tokens_info['success']
+                'request_tokens': tokens_info.get('request_tokens', 0) if tokens_info else 0,
+                'response_tokens': tokens_info.get('response_tokens', 0) if tokens_info else 0,
+                'total_tokens': tokens_info.get('total_tokens', 0) if tokens_info else 0,
+                'model_used': tokens_info.get('model_used', ai_model_id) if tokens_info else ai_model_id,
+                'success': tokens_info.get('success', False) if tokens_info else False
             },
-            'cost_info': tokens_info.get('display_info', {}),
-            'user_cost': format_cost_for_user(tokens_info.get('cost_info', {}).get('total_cost', 0))
+            'cost_info': tokens_info.get('display_info', {}) if tokens_info else {},
+            'user_cost': format_cost_for_user(tokens_info.get('cost_info', {}).get('total_cost', 0) if tokens_info else 0)
         }
         
         # Salvar debug request
@@ -980,20 +1044,20 @@ def generate_minuta():
             prompt_used=prompt_content,
             model_used=ai_model_id,
             tokens_info=tokens_info,
-            success=tokens_info['success'],
-            error_message=tokens_info.get('error')
+            success=tokens_info.get('success', False) if tokens_info else False,
+            error_message=tokens_info.get('error') if tokens_info else None
         )
         
         # Log de uso detalhado
         log = UsageLog(
             user_id=current_user.id,
             action='generate_minuta',
-            tokens_used=tokens_info['total_tokens'],
-            request_tokens=tokens_info['request_tokens'],
-            response_tokens=tokens_info['response_tokens'],
-            model_used=tokens_info['model_used'],
-            success=tokens_info['success'],
-            error_message=tokens_info.get('error')
+            tokens_used=tokens_info.get('total_tokens', 0) if tokens_info else 0,
+            request_tokens=tokens_info.get('request_tokens', 0) if tokens_info else 0,
+            response_tokens=tokens_info.get('response_tokens', 0) if tokens_info else 0,
+            model_used=tokens_info.get('model_used', ai_model_id) if tokens_info else ai_model_id,
+            success=tokens_info.get('success', False) if tokens_info else False,
+            error_message=tokens_info.get('error') if tokens_info else None
         )
         db.session.add(log)
         db.session.commit()
@@ -1097,14 +1161,14 @@ Por favor, ajuste a minuta conforme solicitado, mantendo a estrutura e formataç
         response_data = {
             'minuta': minuta_ajustada,
             'tokens_info': {
-                'request_tokens': tokens_info['request_tokens'],
-                'response_tokens': tokens_info['response_tokens'],
-                'total_tokens': tokens_info['total_tokens'],
-                'model_used': tokens_info['model_used'],
-                'success': tokens_info['success']
+                'request_tokens': tokens_info.get('request_tokens', 0) if tokens_info else 0,
+                'response_tokens': tokens_info.get('response_tokens', 0) if tokens_info else 0,
+                'total_tokens': tokens_info.get('total_tokens', 0) if tokens_info else 0,
+                'model_used': tokens_info.get('model_used', ai_model_id) if tokens_info else ai_model_id,
+                'success': tokens_info.get('success', False) if tokens_info else False
             },
-            'cost_info': tokens_info.get('display_info', {}),
-            'user_cost': format_cost_for_user(tokens_info.get('cost_info', {}).get('total_cost', 0))
+            'cost_info': tokens_info.get('display_info', {}) if tokens_info else {},
+            'user_cost': format_cost_for_user(tokens_info.get('cost_info', {}).get('total_cost', 0) if tokens_info else 0)
         }
         
         # Salvar debug request
@@ -1115,20 +1179,20 @@ Por favor, ajuste a minuta conforme solicitado, mantendo a estrutura e formataç
             prompt_used=adjustment_prompt,
             model_used=ai_model_id,
             tokens_info=tokens_info,
-            success=tokens_info['success'],
-            error_message=tokens_info.get('error')
+            success=tokens_info.get('success', False) if tokens_info else False,
+            error_message=tokens_info.get('error') if tokens_info else None
         )
         
         # Log de uso detalhado
         log = UsageLog(
             user_id=current_user.id,
             action='adjust_minuta',
-            tokens_used=tokens_info['total_tokens'],
-            request_tokens=tokens_info['request_tokens'],
-            response_tokens=tokens_info['response_tokens'],
-            model_used=tokens_info['model_used'],
-            success=tokens_info['success'],
-            error_message=tokens_info.get('error')
+            tokens_used=tokens_info.get('total_tokens', 0) if tokens_info else 0,
+            request_tokens=tokens_info.get('request_tokens', 0) if tokens_info else 0,
+            response_tokens=tokens_info.get('response_tokens', 0) if tokens_info else 0,
+            model_used=tokens_info.get('model_used', ai_model_id) if tokens_info else ai_model_id,
+            success=tokens_info.get('success', False) if tokens_info else False,
+            error_message=tokens_info.get('error') if tokens_info else None
         )
         db.session.add(log)
         db.session.commit()
@@ -1487,23 +1551,19 @@ def get_default_model():
 
 @app.route('/api/available_models')
 def get_available_models():
-    """Retorna lista de modelos disponíveis (apenas habilitados)"""
-    from models_config import get_model_info
-    
-    models = []
-    enabled_models = get_enabled_models()
-    
-    for model_id in enabled_models:
-        info = get_model_info(model_id)
-        if info:
-            models.append({
-                'id': model_id,
-                'name': f"{info['display_name']} ({info['provider_name']})",
-                'provider': info['provider_name'],
-                'description': info['description']
-            })
-    
-    return jsonify({'models': models})
+    """Retorna lista de modelos disponíveis (apenas habilitados do banco)"""
+    try:
+        models = get_models_for_dropdown()
+        return jsonify({
+            'success': True,
+            'models': models
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': 'Erro ao carregar modelos do banco de dados',
+            'models': []
+        })
 
 @app.route('/admin/config', methods=['GET', 'POST'])
 @login_required
@@ -1528,11 +1588,58 @@ def admin_config():
             is_enabled = request.form.get('is_enabled') == 'true'
             
             if model_id:
-                set_model_status(model_id, is_enabled)
-                status_text = "habilitado" if is_enabled else "desabilitado"
-                flash(f'Modelo {model_id} {status_text} com sucesso.', 'success')
+                try:
+                    with app.app_context():
+                        model = AIModel.query.filter_by(model_id=model_id).first()
+                        if model:
+                            model.is_enabled = is_enabled
+                            db.session.commit()
+                            status_text = "habilitado" if is_enabled else "desabilitado"
+                            flash(f'Modelo {model.display_name} {status_text} com sucesso.', 'success')
+                        else:
+                            flash('Modelo não encontrado.', 'error')
+                except Exception as e:
+                    flash(f'Erro ao atualizar modelo: {str(e)}', 'error')
             else:
                 flash('ID do modelo é obrigatório.', 'error')
+        
+        elif action == 'add_model':
+            provider = request.form.get('provider')
+            model_id = request.form.get('model_id')
+            display_name = request.form.get('display_name')
+            description = request.form.get('description')
+            max_tokens = int(request.form.get('max_tokens', 32768))
+            context_window = int(request.form.get('context_window', 32768))
+            price_input = float(request.form.get('price_input', 0))
+            price_output = float(request.form.get('price_output', 0))
+            
+            if not all([provider, model_id, display_name]):
+                flash('Provider, ID do modelo e nome são obrigatórios.', 'error')
+            else:
+                try:
+                    with app.app_context():
+                        # Verificar se já existe
+                        existing = AIModel.query.filter_by(model_id=model_id).first()
+                        if existing:
+                            flash('Modelo com este ID já existe.', 'error')
+                        else:
+                            new_model = AIModel(
+                                name=model_id,
+                                provider=provider,
+                                model_id=model_id,
+                                display_name=display_name,
+                                description=description,
+                                max_tokens=max_tokens,
+                                context_window=context_window,
+                                price_input=price_input,
+                                price_output=price_output,
+                                is_enabled=True
+                            )
+                            db.session.add(new_model)
+                            db.session.commit()
+                            flash(f'Modelo {display_name} adicionado com sucesso!', 'success')
+                except Exception as e:
+                    flash(f'Erro ao adicionar modelo: {str(e)}', 'error')
     
     # Obter configurações atuais
     current_default_model = get_default_ai_model()

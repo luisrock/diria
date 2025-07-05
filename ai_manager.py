@@ -6,7 +6,7 @@ from typing import Dict, List, Tuple, Optional
 import json
 import logging
 from datetime import datetime
-from models_config import MODELS_CONFIG, get_all_models, get_model_info, get_provider_for_model
+from models_config import get_all_models, get_model_info, get_provider_for_model
 import pprint
 from sqlalchemy import text
 from google import genai
@@ -148,7 +148,15 @@ class TokenCounter:
                 model_info = get_model_info(model)
                 if model_info:
                     provider = model_info["provider"]
-                    encoder_type = MODELS_CONFIG[provider]["encoder"]
+                    # Obter encoder do banco de dados
+                    try:
+                        from app import app, AIModel
+                        with app.app_context():
+                            model = AIModel.query.filter_by(provider=provider).first()
+                            encoder_type = model.encoder if model and hasattr(model, 'encoder') else "gpt"
+                    except Exception as e:
+                        print(f"⚠️  Erro ao buscar encoder do provedor {provider}: {e}")
+                        encoder_type = "gpt"  # Fallback
                     
                     if encoder_type == "gpt":
                         # Usar encoder específico do modelo GPT/O

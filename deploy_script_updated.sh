@@ -117,6 +117,14 @@ if [ ! -f "instance/diria.db" ]; then
     echo "🔄 Executando migração consolidada..."
     python migrate_db.py
     
+    # Migrar modelos hardcoded para o banco de dados (sempre na primeira execução)
+    echo "🤖 Migrando modelos de IA para o banco de dados..."
+    python migrate_models_to_db.py
+    
+    # Limpar tabelas desnecessárias (sempre na primeira execução)
+    echo "🧹 Limpando tabelas desnecessárias..."
+    python cleanup_db.py
+    
     echo "✅ Banco de dados inicializado completamente!"
 else
     echo "🔄 Banco existente - executando backup e migração..."
@@ -222,12 +230,73 @@ else
     if [ $? -eq 0 ]; then
         echo "✅ Migração consolidada concluída!"
         
+        # Verificar se os modelos já foram migrados
+        echo "🔍 Verificando se modelos já foram migrados..."
+        python -c "
+from app import app, AIModel
+app.app_context().push()
+models = AIModel.query.all()
+print(f'Encontrados {len(models)} modelos no banco')
+exit(0 if len(models) > 0 else 1)
+" 2>/dev/null
+        
+        if [ $? -ne 0 ]; then
+            # Migrar modelos hardcoded para o banco de dados (apenas se não existirem)
+            echo "🤖 Migrando modelos de IA para o banco de dados..."
+            python migrate_models_to_db.py
+            
+            if [ $? -eq 0 ]; then
+                echo "✅ Modelos migrados com sucesso!"
+            else
+                echo "⚠️  Aviso: Falha na migração de modelos (sistema continuará funcionando)"
+            fi
+        else
+            echo "ℹ️  Modelos já migrados - pulando migração"
+        fi
+        
+        # Verificar se a tabela model_status ainda existe
+        echo "🔍 Verificando se limpeza já foi executada..."
+        python -c "
+import sqlite3
+conn = sqlite3.connect('instance/diria.db')
+cursor = conn.cursor()
+cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table' AND name='model_status'\")
+result = cursor.fetchone()
+conn.close()
+exit(0 if result else 1)
+" 2>/dev/null
+        
+        if [ $? -eq 0 ]; then
+            # Limpar tabelas desnecessárias (apenas se ainda existirem)
+            echo "🧹 Limpando tabelas desnecessárias..."
+            python cleanup_db.py
+            
+            if [ $? -eq 0 ]; then
+                echo "✅ Limpeza do banco concluída!"
+            else
+                echo "⚠️  Aviso: Falha na limpeza do banco (sistema continuará funcionando)"
+            fi
+        else
+            echo "ℹ️  Limpeza já executada - pulando limpeza"
+        fi
+        
         # Verificar integridade do banco após migração
         echo "🔍 Verificando integridade do banco de dados..."
         python verify_db_integrity.py
         
         if [ $? -eq 0 ]; then
             echo "✅ Integridade do banco verificada com sucesso!"
+            
+            # Verificar se os modelos estão funcionando corretamente
+            echo "🤖 Verificando modelos de IA..."
+            python -c "
+from app import app, AIModel
+app.app_context().push()
+models = AIModel.query.all()
+print(f'✅ {len(models)} modelos encontrados no banco')
+enabled_models = [m for m in models if m.is_enabled]
+print(f'✅ {len(enabled_models)} modelos habilitados')
+"
         else
             echo "❌ ERRO: Problemas de integridade detectados no banco!"
             echo "🔄 Restaurando backup..."
@@ -336,8 +405,14 @@ echo "🔑 IMPORTANTE: Configure as chaves de API via painel administrativo!"
 echo "   Acesse: https://diria.com.br/admin/api_keys"
 echo "   Ou use o arquivo .env como fallback"
 echo ""
+echo "🤖 NOVO: Sistema de modelos dinâmicos ativo!"
+echo "   - Modelos agora são gerenciados via banco de dados"
+echo "   - Acesse: https://diria.com.br/admin/config"
+echo "   - Habilite/desabilite modelos conforme necessário"
+echo ""
 echo "📋 Próximos passos:"
 echo "   1. Acesse o painel admin: https://diria.com.br/admin"
 echo "   2. Vá em 'Gerenciar Chaves de API'"
 echo "   3. Configure as chaves de OpenAI, Anthropic e Google"
-echo "   4. Teste a geração de minutas" 
+echo "   4. Vá em 'Configurações' para gerenciar modelos de IA"
+echo "   5. Teste a geração de minutas" 
