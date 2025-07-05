@@ -732,11 +732,156 @@ function mostrarMensagem(mensagem, tipo = 'info') {
     }
 }
 
+// Variáveis globais para visualização de peças
+let pecaVisualizadaAtual = null;
+
 // Função para visualizar uma peça específica
-function visualizarPeca(pecaId, rotulo) {
-    // Por enquanto, apenas mostrar uma mensagem
-    // No futuro, pode ser implementada a visualização do conteúdo da peça
-    alert(`Visualizando peça: ${rotulo}\nID: ${pecaId}\n\nFuncionalidade de visualização será implementada em breve.`);
+async function visualizarPeca(pecaId, rotulo) {
+    // Obter número do processo
+    const numeroProcesso = document.getElementById('numero_processo').value.trim();
+    if (!numeroProcesso) {
+        alert('Número do processo é obrigatório para visualizar peças.');
+        return;
+    }
+    
+    // Armazenar dados da peça atual
+    pecaVisualizadaAtual = {
+        id: pecaId,
+        rotulo: rotulo,
+        numeroProcesso: numeroProcesso
+    };
+    
+    // Mostrar modal de visualização
+    abrirModalVisualizarPeca();
+    
+    // Mostrar loading
+    document.getElementById('loadingVisualizarPeca').classList.remove('hidden');
+    document.getElementById('conteudoVisualizarPeca').classList.add('hidden');
+    document.getElementById('erroVisualizarPeca').classList.add('hidden');
+    
+    try {
+        // Buscar conteúdo da peça
+        const response = await fetch('/api/buscar_conteudo_peca', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                numero_processo: numeroProcesso,
+                id_peca: pecaId,
+                sistema: 'br.jus.jfrj.eproc'
+            })
+        });
+        
+        const resultado = await response.json();
+        
+        // Esconder loading
+        document.getElementById('loadingVisualizarPeca').classList.add('hidden');
+        
+        if (resultado.success) {
+            // Preencher informações da peça
+            document.getElementById('pecaNome').textContent = rotulo;
+            document.getElementById('pecaFormato').textContent = resultado.formato || 'N/A';
+            document.getElementById('pecaTamanho').textContent = formatarTamanho(resultado.tamanho_bytes);
+            document.getElementById('pecaStatus').textContent = resultado.conteudo_disponivel ? 'Disponível' : 'Indisponível';
+            
+            // Preencher conteúdo
+            const conteudoElement = document.getElementById('pecaConteudo');
+            if (resultado.texto_extraido && resultado.texto_extraido.trim()) {
+                conteudoElement.textContent = resultado.texto_extraido;
+                document.getElementById('btnImportarPeca').classList.remove('hidden');
+            } else {
+                conteudoElement.textContent = resultado.mensagem || 'Conteúdo não disponível para visualização.';
+                document.getElementById('btnImportarPeca').classList.add('hidden');
+            }
+            
+            // Mostrar conteúdo
+            document.getElementById('conteudoVisualizarPeca').classList.remove('hidden');
+        } else {
+            // Mostrar erro
+            document.getElementById('mensagemErroVisualizarPeca').textContent = resultado.error || 'Erro desconhecido ao carregar peça.';
+            document.getElementById('erroVisualizarPeca').classList.remove('hidden');
+        }
+    } catch (error) {
+        // Esconder loading
+        document.getElementById('loadingVisualizarPeca').classList.add('hidden');
+        
+        // Mostrar erro
+        document.getElementById('mensagemErroVisualizarPeca').textContent = `Erro de conexão: ${error.message}`;
+        document.getElementById('erroVisualizarPeca').classList.remove('hidden');
+    }
+}
+
+// Função para abrir modal de visualização
+function abrirModalVisualizarPeca() {
+    document.getElementById('modalVisualizarPeca').style.display = 'block';
+}
+
+// Função para fechar modal de visualização
+function fecharModalVisualizarPeca() {
+    document.getElementById('modalVisualizarPeca').style.display = 'none';
+    pecaVisualizadaAtual = null;
+}
+
+// Função para importar peça visualizada
+function importarPecaVisualizada() {
+    if (!pecaVisualizadaAtual) {
+        alert('Nenhuma peça selecionada para importar.');
+        return;
+    }
+    
+    // Verificar se a peça já foi importada
+    const container = document.getElementById('pecas-container');
+    const pecasExistentes = container.querySelectorAll('.peca-item');
+    
+    for (let pecaItem of pecasExistentes) {
+        const pecaId = pecaItem.dataset.pecaId;
+        if (pecaId === pecaVisualizadaAtual.id) {
+            alert('Esta peça já foi importada.');
+            return;
+        }
+    }
+    
+    // Obter conteúdo da peça
+    const conteudoElement = document.getElementById('pecaConteudo');
+    const conteudo = conteudoElement.textContent;
+    
+    if (!conteudo || conteudo.trim() === '') {
+        alert('Não há conteúdo disponível para importar.');
+        return;
+    }
+    
+    // Criar elemento da peça
+    const peca = {
+        id: pecaVisualizadaAtual.id,
+        nome: pecaVisualizadaAtual.rotulo,
+        conteudo: conteudo,
+        tipo: 'importada'
+    };
+    
+    // Adicionar peça ao container
+    const elementoPeca = criarElementoPeca(peca, 'importada');
+    container.appendChild(elementoPeca);
+    
+    // Atualizar contadores
+    updateContadorPecas();
+    
+    // Fechar modal
+    fecharModalVisualizarPeca();
+    
+    // Mostrar notificação
+    showNotification('Peça importada com sucesso!', 'success');
+}
+
+// Função para formatar tamanho em bytes
+function formatarTamanho(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
 // Inicializar quando a página carregar

@@ -601,6 +601,69 @@
     </div>
 </div>
 
+<!-- Modal de Visualização de Peça -->
+<div id="modalVisualizarPeca" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="text-lg font-medium text-gray-900">
+                <i class="fas fa-eye mr-2 text-green-600"></i>
+                Visualizar Peça Processual
+            </h3>
+            <span class="close" onclick="fecharModalVisualizarPeca()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div id="loadingVisualizarPeca" class="text-center py-8 hidden">
+                <div class="loading-spinner mx-auto mb-4"></div>
+                <p class="text-gray-600">Carregando conteúdo da peça...</p>
+            </div>
+            <div id="conteudoVisualizarPeca" class="hidden">
+                <div class="mb-4 p-4 bg-gray-50 rounded-lg">
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                            <span class="font-medium text-gray-700">Peça:</span>
+                            <span id="pecaNome" class="ml-2 text-gray-900"></span>
+                        </div>
+                        <div>
+                            <span class="font-medium text-gray-700">Formato:</span>
+                            <span id="pecaFormato" class="ml-2 text-gray-900"></span>
+                        </div>
+                        <div>
+                            <span class="font-medium text-gray-700">Tamanho:</span>
+                            <span id="pecaTamanho" class="ml-2 text-gray-900"></span>
+                        </div>
+                        <div>
+                            <span class="font-medium text-gray-700">Status:</span>
+                            <span id="pecaStatus" class="ml-2 text-gray-900"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="border rounded-lg p-4 bg-white">
+                    <h4 class="font-medium text-gray-900 mb-3">Conteúdo da Peça:</h4>
+                    <div id="pecaConteudo" class="max-h-96 overflow-y-auto text-sm leading-relaxed whitespace-pre-wrap bg-gray-50 p-4 rounded border">
+                        <!-- Conteúdo da peça será inserido aqui -->
+                    </div>
+                </div>
+            </div>
+            <div id="erroVisualizarPeca" class="text-center py-8 hidden">
+                <i class="fas fa-exclamation-triangle text-red-500 text-3xl mb-4"></i>
+                <p class="text-red-600 font-medium">Erro ao carregar peça</p>
+                <p class="text-gray-600 text-sm mt-2" id="mensagemErroVisualizarPeca">Não foi possível carregar o conteúdo da peça.</p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button onclick="fecharModalVisualizarPeca()" 
+                    class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50">
+                Fechar
+            </button>
+            <button onclick="importarPecaVisualizada()" id="btnImportarPeca"
+                    class="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 hidden">
+                <i class="fas fa-download mr-2"></i>
+                Importar Peça
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Scripts -->
 <script src="{{ url_for('static', filename='js/dashboard_eproc.js') }}"></script>
 {% endblock %} 
