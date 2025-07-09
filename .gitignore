@@ -306,4 +306,5 @@ instance/
 backups/
 *.db
 *.sqlite
-*.sqlite3 debug_response*.json
+*.sqlite3
+debug_response*.json
