@@ -1583,14 +1583,90 @@ def admin_stats():
             'cost_brl': format_cost_for_user(cost_info.get('total_cost', 0))
         })
     
-    # Tokens por usuário
-    tokens_by_user = db.session.query(
+    # Tokens por usuário - ORDENADO por tokens em ordem decrescente
+    tokens_by_user_raw = db.session.query(
+        User.id,
         User.name,
         db.func.sum(UsageLog.tokens_used).label('total_tokens'),
         db.func.count(UsageLog.id).label('count')
     ).join(UsageLog).filter(
         UsageLog.tokens_used > 0
-    ).group_by(User.id, User.name).all()
+    ).group_by(User.id, User.name).order_by(db.desc(db.func.sum(UsageLog.tokens_used))).all()
+    
+    # Converter para estrutura compatível com o template (mantendo NamedTuple-like)
+    tokens_by_user = []
+    for user_data in tokens_by_user_raw:
+        # Criar objeto com atributos name, total_tokens, count para compatibilidade
+        class UserTokenData:
+            def __init__(self, name, total_tokens, count):
+                self.name = name
+                self.total_tokens = total_tokens
+                self.count = count
+        
+        tokens_by_user.append(UserTokenData(
+            name=user_data.name,
+            total_tokens=user_data.total_tokens,
+            count=user_data.count
+        ))
+    
+    # Calcular custos por usuário - ORDENADO por custo em ordem decrescente
+    user_costs = []
+    
+    # Otimização: buscar todos os logs de uma vez e calcular custos
+    all_user_logs = db.session.query(
+        UsageLog.user_id,
+        UsageLog.request_tokens,
+        UsageLog.response_tokens,
+        UsageLog.model_used,
+        User.name
+    ).join(User).filter(
+        UsageLog.tokens_used > 0,
+        UsageLog.model_used.isnot(None)
+    ).all()
+    
+    # Agrupar logs por usuário e calcular custos
+    user_cost_data = {}
+    for log_data in all_user_logs:
+        user_id = log_data.user_id
+        user_name = log_data.name
+        
+        if user_id not in user_cost_data:
+            # Encontrar dados do usuário no tokens_by_user_raw
+            user_token_data = next((u for u in tokens_by_user_raw if u.id == user_id), None)
+            if user_token_data:
+                user_cost_data[user_id] = {
+                    'name': user_name,
+                    'total_tokens': user_token_data.total_tokens,
+                    'count': user_token_data.count,
+                    'cost_usd': 0
+                }
+        
+        # Calcular custo do log
+        if user_id in user_cost_data and log_data.model_used:
+            from models_config import calculate_cost
+            cost_info = calculate_cost(
+                log_data.request_tokens or 0,
+                log_data.response_tokens or 0,
+                log_data.model_used
+            )
+            user_cost_data[user_id]['cost_usd'] += cost_info.get('total_cost', 0)
+    
+    # Converter para lista final com formatação
+    for user_id, user_data in user_cost_data.items():
+        cost_usd = user_data['cost_usd']
+        user_costs.append({
+            'id': user_id,
+            'name': user_data['name'],
+            'total_tokens': user_data['total_tokens'],
+            'count': user_data['count'],
+            'cost_usd': cost_usd,
+            'cost_brl': format_cost_for_user(cost_usd),
+            'cost_admin_usd': format_cost_for_admin(cost_usd)['usd'],
+            'cost_admin_brl': format_cost_for_admin(cost_usd)['brl']
+        })
+    
+    # Ordenar usuários por custo em ordem decrescente
+    user_costs.sort(key=lambda x: x['cost_usd'], reverse=True)
     
     # Últimos 7 dias
     seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
@@ -1617,7 +1693,8 @@ def admin_stats():
         'success_rate': (successful_requests / total_requests * 100) if total_requests > 0 else 0,
         'tokens_by_model': tokens_by_model,
         'model_costs': model_costs,
-        'tokens_by_user': tokens_by_user,
+        'tokens_by_user': tokens_by_user,  # Já ordenado por tokens desc
+        'user_costs': user_costs,  # Novo: custos por usuário ordenados por custo desc
         'recent_logs': recent_logs,
         'recent_tokens': recent_tokens,
         'total_cost_usd': admin_cost_info['usd'],
