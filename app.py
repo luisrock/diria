@@ -922,12 +922,7 @@ def dashboard():
     prompts = Prompt.query.all()
     return render_template('dashboard_eproc.html', prompts=prompts)
 
-@app.route('/dashboardb')
-@login_required
-def dashboard_eproc():
-    """Dashboard alternativo com integração eproc - mantido como backup"""
-    prompts = Prompt.query.all()
-    return render_template('dashboard_eproc.html', prompts=prompts)
+
 
 @app.route('/change_password', methods=['GET', 'POST'])
 @login_required
