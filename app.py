@@ -47,6 +47,26 @@ def from_json_filter(value):
     except (json.JSONDecodeError, TypeError):
         return None
 
+@app.template_filter('extract_numero_processo')
+def extract_numero_processo(request_data_json):
+    """Extrai o número do processo dos dados da requisição JSON"""
+    try:
+        import json
+        data = json.loads(request_data_json)
+        numero_processo = data.get('numero_processo', '')
+        if numero_processo:
+            # Se o número já está formatado, retornar como está
+            if '-' in numero_processo or '.' in numero_processo:
+                return numero_processo
+            # Se é só números, formatar como processo judicial
+            if numero_processo.isdigit() and len(numero_processo) >= 15:
+                # Formato: NNNNNNN-DD.AAAA.J.TT.OOOO
+                return f"{numero_processo[:7]}-{numero_processo[7:9]}.{numero_processo[9:13]}.{numero_processo[13]}.{numero_processo[14:16]}.{numero_processo[16:]}"
+            return numero_processo
+        return '-'
+    except:
+        return '-'
+
 # Desabilitar avisos de SSL para a API do Balcão Jus
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -825,21 +845,9 @@ def extrair_pecas_movimentos_balcaojus(json_movimentos):
 def save_debug_request(action, request_data, response_data, prompt_used=None, model_used=None, tokens_info=None, success=True, error_message=None):
     """Salva uma requisição de debug no banco de dados"""
     try:
-        # Manter apenas as 20 últimas requisições por usuário
         user_id = current_user.id if current_user.is_authenticated else None
         
-        if user_id:
-            # Contar requisições existentes do usuário
-            count = DebugRequest.query.filter_by(user_id=user_id).count()
-            
-            if count >= 20:
-                # Remover as mais antigas até ficar com 19 (para adicionar a nova)
-                excess_count = count - 19
-                oldest_requests = DebugRequest.query.filter_by(user_id=user_id).order_by(DebugRequest.created_at.asc()).limit(excess_count).all()
-                for old_request in oldest_requests:
-                    db.session.delete(old_request)
-        
-        # Criar nova requisição de debug
+        # Criar nova requisição de debug (sem limitação)
         debug_request = DebugRequest(
             user_id=user_id,
             action=action,
@@ -862,14 +870,65 @@ def save_debug_request(action, request_data, response_data, prompt_used=None, mo
         db.session.rollback()
         return None
 
-def get_debug_requests(limit=10):
-    """Retorna as últimas requisições de debug"""
+def get_debug_requests(page=1, per_page=30, start_date=None, end_date=None, user_id=None, numero_processo=None):
+    """Retorna requisições de debug com paginação e filtros"""
     try:
-        requests = DebugRequest.query.order_by(DebugRequest.created_at.desc()).limit(limit).all()
-        return requests
+        query = DebugRequest.query
+        
+        # Aplicar filtros
+        if user_id:
+            query = query.filter_by(user_id=user_id)
+        
+        if start_date:
+            query = query.filter(DebugRequest.created_at >= start_date)
+        
+        if end_date:
+            # Adicionar 23:59:59 ao end_date para incluir o dia todo
+            from datetime import datetime, time
+            if isinstance(end_date, str):
+                end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+            end_datetime = datetime.combine(end_date, time(23, 59, 59))
+            query = query.filter(DebugRequest.created_at <= end_datetime)
+        
+        # Filtro por número de processo
+        if numero_processo:
+            # Limpar o número (remover pontos, hífens, espaços)
+            numero_limpo = re.sub(r'[^\d]', '', numero_processo)
+            if numero_limpo:
+                # Criar diferentes variações do número para busca mais abrangente
+                condicoes_busca = []
+                
+                # 1. Buscar pelo número original (como digitado)
+                condicoes_busca.append(DebugRequest.request_data.like(f'%{numero_processo}%'))
+                
+                # 2. Buscar pelo número limpo (só números)
+                condicoes_busca.append(DebugRequest.request_data.like(f'%{numero_limpo}%'))
+                
+                # 3. Se for só números e tiver pelo menos 15 dígitos, tentar formato judicial
+                if numero_processo.isdigit() and len(numero_limpo) >= 15:
+                    # Formato: NNNNNNN-DD.AAAA.J.TT.OOOO
+                    if len(numero_limpo) >= 20:
+                        numero_formatado = f"{numero_limpo[:7]}-{numero_limpo[7:9]}.{numero_limpo[9:13]}.{numero_limpo[13]}.{numero_limpo[14:16]}.{numero_limpo[16:]}"
+                        condicoes_busca.append(DebugRequest.request_data.like(f'%{numero_formatado}%'))
+                
+                # 4. Se for formatado, também buscar só pelos números
+                if not numero_processo.isdigit():
+                    condicoes_busca.append(DebugRequest.request_data.like(f'%{numero_limpo}%'))
+                
+                # Aplicar filtro com OR entre todas as condições
+                query = query.filter(db.or_(*condicoes_busca))
+        
+        # Ordenar por data decrescente e paginar
+        paginated = query.order_by(DebugRequest.created_at.desc()).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+        
+        return paginated
     except Exception as e:
         app.logger.error(f"Erro ao buscar debug requests: {str(e)}")
-        return []
+        # Retornar objeto paginado vazio em caso de erro
+        from flask_sqlalchemy import Pagination
+        return Pagination(query=None, page=1, per_page=per_page, total=0, items=[])
 
 def get_user_debug_requests(user_id, limit=20):
     """Retorna as últimas requisições de debug de um usuário específico"""
@@ -1868,10 +1927,57 @@ def admin_debug():
         flash('Acesso negado. Apenas administradores podem acessar esta página.', 'error')
         return redirect(url_for('dashboard'))
     
-    # Obter requisições de debug
-    debug_requests = get_debug_requests(limit=20)
+    # Obter parâmetros da URL
+    page = request.args.get('page', 1, type=int)
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    user_id = request.args.get('user_id', type=int)
+    numero_processo = request.args.get('numero_processo', '').strip()
     
-    return render_template('admin_debug.html', debug_requests=debug_requests)
+    # Converter datas se fornecidas
+    start_date_obj = None
+    end_date_obj = None
+    
+    if start_date:
+        try:
+            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+        except ValueError:
+            flash('Data inicial inválida. Use o formato AAAA-MM-DD.', 'error')
+    
+    if end_date:
+        try:
+            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+        except ValueError:
+            flash('Data final inválida. Use o formato AAAA-MM-DD.', 'error')
+    
+    # Validar intervalo de datas
+    if start_date_obj and end_date_obj and start_date_obj > end_date_obj:
+        flash('A data inicial não pode ser posterior à data final.', 'error')
+        start_date_obj = end_date_obj = None
+    
+    # Obter requisições de debug com paginação e filtros
+    pagination = get_debug_requests(
+        page=page,
+        per_page=30,
+        start_date=start_date_obj,
+        end_date=end_date_obj,
+        user_id=user_id,
+        numero_processo=numero_processo
+    )
+    
+    # Obter lista de usuários para filtro
+    users = User.query.filter_by(is_active=True).order_by(User.name).all()
+    
+    return render_template('admin_debug.html', 
+                         pagination=pagination,
+                         debug_requests=pagination.items,
+                         users=users,
+                         current_filters={
+                             'start_date': start_date,
+                             'end_date': end_date,
+                             'user_id': user_id,
+                             'numero_processo': numero_processo
+                         })
 
 @app.route('/admin/debug/<int:request_id>', methods=['GET'])
 @login_required
