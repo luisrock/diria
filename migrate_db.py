@@ -67,6 +67,49 @@ def create_ai_model_table():
         print("✅ Tabela ai_model já existe")
         return False
 
+def create_adjustment_prompt_config():
+    """Cria a configuração padrão do prompt de ajuste se não existir"""
+    try:
+        from app import get_app_config, set_app_config
+        
+        # Verificar se já existe
+        existing_config = get_app_config('adjustment_prompt')
+        if existing_config is None:
+            print("🔄 Criando configuração padrão do prompt de ajuste...")
+            
+            # Definir o prompt padrão com placeholders
+            default_prompt = """Aqui está o que foi pedido inicialmente:
+
+[PEDIDO INICIAL]
+{{PROMPT_ORIGINAL}}
+[/PEDIDO INICIAL]
+
+Aqui está o conteúdo da minuta gerada pelo modelo de IA:
+
+[MINUTA]
+{{MINUTA}}
+[/MINUTA]
+
+Por favor, ajuste a minuta conforme solicitado abaixo.
+
+[PEDIDO DE AJUSTE]
+{{PEDIDO_DE_AJUSTE}}
+[/PEDIDO DE AJUSTE]
+
+Não escreva nada antes ou depois da nova minuta gerada. Apenas apresente o texto da nova minuta, obedecendo ao prompt original e às instruções do pedido de ajuste.
+
+Pronto. Pode confeccionar a nova minuta agora."""
+            set_app_config('adjustment_prompt', default_prompt, 'Prompt padrão usado para ajustes de minutas')
+            
+            print("✅ Configuração do prompt de ajuste criada com sucesso!")
+            return True
+        else:
+            print("✅ Configuração do prompt de ajuste já existe")
+            return False
+    except Exception as e:
+        print(f"❌ Erro ao criar configuração do prompt de ajuste: {e}")
+        return False
+
 def migrate_database():
     """Executa todas as migrações necessárias"""
     print("🚀 Iniciando migração do banco de dados...")
@@ -88,6 +131,7 @@ def migrate_database():
             ("Tabela DebugRequest", create_debug_table),
             ("Tabela EprocCredentials", create_eproc_credentials_table),
             ("Tabela AIModel", create_ai_model_table),
+            ("Configuração do Prompt de Ajuste", create_adjustment_prompt_config),
         ]
         
         # Executar migrações
@@ -128,6 +172,19 @@ def show_status():
             'api_key', 'eproc_credentials', 'dollar_rate', 
             'ai_model', 'debug_request'
         ]
+        
+        # Verificar configurações obrigatórias
+        try:
+            from app import get_app_config
+            required_configs = ['adjustment_prompt']
+            print(f"\n🔍 Verificação de configurações obrigatórias:")
+            for config in required_configs:
+                if get_app_config(config) is not None:
+                    print(f"  ✅ {config}")
+                else:
+                    print(f"  ❌ {config} (faltando)")
+        except Exception as e:
+            print(f"  ⚠️  Erro ao verificar configurações: {e}")
         
         print(f"\n🔍 Verificação de tabelas obrigatórias:")
         for table in required_tables:

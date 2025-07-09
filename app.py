@@ -1089,6 +1089,23 @@ def generate_minuta():
         
         return jsonify(error_response), 500
 
+def get_adjustment_prompt():
+    """Obtém o prompt de ajuste da configuração"""
+    default_prompt = """{{PROMPT_ORIGINAL}}
+
+MINUTA ATUAL:
+{{MINUTA}}
+
+PEDIDO DE AJUSTE:
+{{PEDIDO_DE_AJUSTE}}
+
+Por favor, ajuste a minuta conforme solicitado, mantendo a estrutura e formatação adequadas para um documento judicial."""
+    return get_app_config('adjustment_prompt', default_prompt)
+
+def set_adjustment_prompt(prompt):
+    """Define o prompt de ajuste na configuração"""
+    return set_app_config('adjustment_prompt', prompt, 'Prompt padrão usado para ajustes de minutas')
+
 @app.route('/adjust_minuta', methods=['POST'])
 @login_required
 def adjust_minuta():
@@ -1111,45 +1128,59 @@ def adjust_minuta():
         if not get_model_status(ai_model_id):
             return jsonify({'error': f'Modelo {ai_model_id} não está habilitado no sistema.'}), 400
         
-        # Obter o prompt original (usar o primeiro prompt disponível ou default)
-        prompt = Prompt.query.filter_by(is_default=True).first()
-        if not prompt:
-            prompt = Prompt.query.first()
+        # Obter o prompt original usado na primeira geração
+        original_prompt_id = data.get('prompt_id')
+        if original_prompt_id:
+            original_prompt = db.session.get(Prompt, int(original_prompt_id))
+        else:
+            # Fallback: usar prompt padrão
+            original_prompt = Prompt.query.filter_by(is_default=True).first()
+            if not original_prompt:
+                original_prompt = Prompt.query.first()
         
-        if not prompt:
-            return jsonify({'error': 'Nenhum prompt encontrado.'}), 400
+        if not original_prompt:
+            return jsonify({'error': 'Nenhum prompt original encontrado.'}), 400
         
-        # Preparar dados para o prompt de ajuste
-        pecas_texto = ""
+        # Reconstruir o prompt original com os dados
+        numero_processo = data.get('numero_processo', '')
+        if numero_processo:
+            numero_processo = re.sub(r'[^\d]', '', numero_processo)
+        
+        # Preparar peças processuais para o prompt original
+        pecas_texto_original = ""
         for peca in data.get('pecas_processuais', []):
             nome_peca = peca.get('nome', '').strip()
             conteudo_peca = peca.get('conteudo', '').strip()
             
             if nome_peca and conteudo_peca:
                 # Formatar como grupo estruturado
-                pecas_texto += f"\n{'-' * 50}\n"
-                pecas_texto += f"{nome_peca.upper()}:\n"
-                pecas_texto += f"{'-' * 50}\n"
-                pecas_texto += f"{conteudo_peca}\n"
-                pecas_texto += f"{'-' * 50}\n"
+                pecas_texto_original += f"\n{'-' * 50}\n"
+                pecas_texto_original += f"{nome_peca.upper()}:\n"
+                pecas_texto_original += f"{'-' * 50}\n"
+                pecas_texto_original += f"{conteudo_peca}\n"
+                pecas_texto_original += f"{'-' * 50}\n"
         
         # Se não há peças estruturadas, usar formato antigo como fallback
-        if not pecas_texto.strip():
+        if not pecas_texto_original.strip():
             for peca in data.get('pecas_processuais', []):
-                pecas_texto += f"\n- {peca.get('nome', '')}: {peca.get('conteudo', '')}\n"
+                pecas_texto_original += f"\n- {peca.get('nome', '')}: {peca.get('conteudo', '')}\n"
         
-        # Criar prompt de ajuste com histórico
-        adjustment_prompt = f"""
-{data.get('adjustment_prompt', '')}
-
-MINUTA ATUAL:
-{data.get('current_content', '')}
-
-PECAS PROCESSUAIS ORIGINAIS:
-{pecas_texto}
-
-Por favor, ajuste a minuta conforme solicitado, mantendo a estrutura e formatação adequadas para um documento judicial.
-"""
+        # Reconstruir o prompt original com substituição de placeholders
+        prompt_original_content = original_prompt.content
+        prompt_original_content = prompt_original_content.replace('{{numero_processo}}', numero_processo if numero_processo else 'Não informado')
+        prompt_original_content = prompt_original_content.replace('{{pecas_processuais}}', pecas_texto_original)
+        prompt_original_content = prompt_original_content.replace('{{como_decidir}}', data.get('como_decidir', ''))
+        prompt_original_content = prompt_original_content.replace('{{fundamentos}}', data.get('fundamentos', ''))
+        prompt_original_content = prompt_original_content.replace('{{vedacoes}}', data.get('vedacoes', ''))
+        
+        # Obter o prompt de ajuste da configuração
+        adjustment_prompt_template = get_adjustment_prompt()
+        
+        # Substituir placeholders no prompt de ajuste
+        adjustment_prompt = adjustment_prompt_template
+        adjustment_prompt = adjustment_prompt.replace('{{PROMPT_ORIGINAL}}', prompt_original_content)
+        adjustment_prompt = adjustment_prompt.replace('{{MINUTA}}', data.get('current_content', ''))
+        adjustment_prompt = adjustment_prompt.replace('{{PEDIDO_DE_AJUSTE}}', data.get('adjustment_prompt', ''))
         
         # Gerar resposta usando IA
         minuta_ajustada, tokens_info = ai_manager.generate_response(
@@ -1686,6 +1717,18 @@ def admin_config():
                             flash(f'Modelo {display_name} atualizado com sucesso!', 'success')
                 except Exception as e:
                     flash(f'Erro ao atualizar modelo: {str(e)}', 'error')
+        
+        elif action == 'update_adjustment_prompt':
+            adjustment_prompt = request.form.get('adjustment_prompt', '').strip()
+            
+            if not adjustment_prompt:
+                flash('O prompt de ajuste não pode estar vazio.', 'error')
+            else:
+                try:
+                    set_adjustment_prompt(adjustment_prompt)
+                    flash('Prompt de ajuste atualizado com sucesso!', 'success')
+                except Exception as e:
+                    flash(f'Erro ao atualizar prompt de ajuste: {str(e)}', 'error')
     
     # Obter configurações atuais
     current_default_model = get_default_ai_model()
@@ -1693,9 +1736,13 @@ def admin_config():
     # Obter modelos disponíveis com status
     available_models = get_all_models_with_status()
     
+    # Obter prompt de ajuste atual
+    adjustment_prompt = get_adjustment_prompt()
+    
     return render_template('admin_config.html', 
                          current_default_model=current_default_model,
-                         available_models=available_models)
+                         available_models=available_models,
+                         adjustment_prompt=adjustment_prompt)
 
 @app.route('/admin/instructions', methods=['GET', 'POST'])
 @login_required
