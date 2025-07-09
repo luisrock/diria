@@ -842,9 +842,9 @@ function importarPecaVisualizada() {
         }
     }
     
-    // Obter conteúdo da peça
+    // Obter conteúdo da peça (editado)
     const conteudoElement = document.getElementById('pecaConteudo');
-    const conteudo = conteudoElement.textContent;
+    const conteudo = conteudoElement.innerText;
     
     if (!conteudo || conteudo.trim() === '') {
         alert('Não há conteúdo disponível para importar.');
