@@ -64,7 +64,10 @@ function selecionarObjetivo(objetivo) {
     }
     
     // Carregar prompts do objetivo selecionado
-    carregarPromptsPorObjetivo(objetivo);
+    // Aguardar um pouco para garantir que os modelos foram carregados
+    setTimeout(() => {
+        carregarPromptsPorObjetivo(objetivo);
+    }, 100);
 }
 
 // Função para atualizar textos dinamicamente baseado no objetivo
@@ -108,18 +111,53 @@ async function carregarPromptsPorObjetivo(objetivo) {
             const promptSelect = document.getElementById('prompt_select');
             promptSelect.innerHTML = '';
             
+            let defaultPrompt = null;
+            
             data.prompts.forEach(prompt => {
                 const option = document.createElement('option');
                 option.value = prompt.id;
                 option.textContent = prompt.name;
+                option.dataset.aiModel = prompt.ai_model; // Armazenar o modelo do prompt
                 if (prompt.is_default) {
                     option.selected = true;
+                    defaultPrompt = prompt;
                 }
                 promptSelect.appendChild(option);
             });
+            
+            // Carregar o modelo padrão do prompt padrão
+            if (defaultPrompt && defaultPrompt.ai_model) {
+                carregarModeloDoPrompt(defaultPrompt.ai_model);
+            } else {
+                // Se não encontrar modelo do prompt padrão, usar o padrão da aplicação
+                loadDefaultModel();
+            }
         }
     } catch (error) {
         console.error('Erro ao carregar prompts:', error);
+        // Em caso de erro, carregar modelo padrão da aplicação
+        loadDefaultModel();
+    }
+}
+
+// Função para carregar o modelo de um prompt específico
+function carregarModeloDoPrompt(aiModel) {
+    const modelSelect = document.getElementById('ai_model_select');
+    if (modelSelect && aiModel) {
+        // Procurar a opção com o modelo do prompt
+        const option = modelSelect.querySelector(`option[value="${aiModel}"]`);
+        if (option) {
+            option.selected = true;
+            console.log(`✅ Modelo do prompt selecionado: ${aiModel}`);
+        } else {
+            // Se não encontrar, usar o modelo padrão da aplicação
+            console.log(`⚠️ Modelo do prompt não encontrado: ${aiModel}. Usando padrão da aplicação.`);
+            loadDefaultModel();
+        }
+    } else {
+        // Se não há modelo especificado, usar o padrão da aplicação
+        console.log('⚠️ Nenhum modelo especificado. Usando padrão da aplicação.');
+        loadDefaultModel();
     }
 }
 
@@ -999,6 +1037,26 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Inicializar textos dinâmicos
     atualizarTextosDinamicos(objetivoAtual);
+    
+    // Adicionar event listener para mudança de prompt
+    const promptSelect = document.getElementById('prompt_select');
+    if (promptSelect) {
+        promptSelect.addEventListener('change', function() {
+            const selectedOption = this.options[this.selectedIndex];
+            if (selectedOption && selectedOption.dataset.aiModel) {
+                carregarModeloDoPrompt(selectedOption.dataset.aiModel);
+            } else {
+                // Se não há modelo associado ao prompt, usar o padrão da aplicação
+                loadDefaultModel();
+            }
+        });
+    }
+    
+    // Carregar prompts iniciais para o objetivo atual
+    // Aguardar um pouco para garantir que os modelos foram carregados
+    setTimeout(() => {
+        carregarPromptsPorObjetivo(objetivoAtual);
+    }, 100);
 });
 
 // Inicializar sistema de drag and drop
