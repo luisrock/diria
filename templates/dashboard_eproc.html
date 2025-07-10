@@ -293,6 +293,29 @@
                 <p class="mt-1 text-xs text-gray-500">Apenas números serão considerados</p>
             </div>
 
+            <!-- Seleção de Objetivo -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-bullseye mr-2 text-primary-600"></i>
+                    Tipo de Documento
+                </label>
+                <div class="flex gap-2">
+                    <button type="button" id="btn-minuta" class="objetivo-btn bg-primary-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500" onclick="selecionarObjetivo('minuta')">
+                        <i class="fas fa-file-alt mr-2"></i>
+                        Minuta
+                    </button>
+                    <button type="button" id="btn-resumo" class="objetivo-btn bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500" onclick="selecionarObjetivo('resumo')">
+                        <i class="fas fa-file-text mr-2"></i>
+                        Resumo
+                    </button>
+                    <button type="button" id="btn-relatorio" class="objetivo-btn bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500" onclick="selecionarObjetivo('relatorio')">
+                        <i class="fas fa-chart-bar mr-2"></i>
+                        Relatório
+                    </button>
+                </div>
+                <input type="hidden" id="objetivo_selecionado" name="objetivo" value="minuta">
+            </div>
+
             <!-- Grupos de peças -->
             <div class="space-y-6">
                 <div class="bg-white rounded-lg shadow p-6">
@@ -315,37 +338,54 @@
                 </div>
             </div>
 
-            <!-- Como Decidir -->
-            <div>
-                <label for="como_decidir" class="block text-sm font-medium text-gray-700 mb-2">
-                    <i class="fas fa-gavel mr-2 text-primary-600"></i>
-                    Como Decidir <span class="text-red-500">*</span>
-                </label>
-                <textarea id="como_decidir" name="como_decidir" rows="4" required
-                          class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
-                          placeholder="Descreva como você gostaria que a decisão fosse tomada..."></textarea>
+            <!-- Campos específicos para Minuta -->
+            <div id="campos-minuta">
+                <!-- Como Decidir -->
+                <div>
+                    <label for="como_decidir" class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-gavel mr-2 text-primary-600"></i>
+                        Como Decidir <span class="text-red-500">*</span>
+                    </label>
+                    <textarea id="como_decidir" name="como_decidir" rows="4" required
+                              class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                              placeholder="Descreva como você gostaria que a decisão fosse tomada..."></textarea>
+                </div>
+
+                <!-- Fundamentos -->
+                <div>
+                    <label for="fundamentos" class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-book mr-2 text-primary-600"></i>
+                        Fundamentos (Opcional)
+                    </label>
+                    <textarea id="fundamentos" name="fundamentos" rows="4"
+                              class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                              placeholder="Fundamentos legais da decisão..."></textarea>
+                </div>
+
+                <!-- Vedações -->
+                <div>
+                    <label for="vedacoes" class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-ban mr-2 text-primary-600"></i>
+                        Vedações (Opcional)
+                    </label>
+                    <textarea id="vedacoes" name="vedacoes" rows="4"
+                              class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                              placeholder="Limitações ou vedações que devem ser consideradas..."></textarea>
+                </div>
             </div>
 
-            <!-- Fundamentos -->
-            <div>
-                <label for="fundamentos" class="block text-sm font-medium text-gray-700 mb-2">
-                    <i class="fas fa-book mr-2 text-primary-600"></i>
-                    Fundamentos (Opcional)
-                </label>
-                <textarea id="fundamentos" name="fundamentos" rows="4"
-                          class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
-                          placeholder="Fundamentos legais da decisão..."></textarea>
-            </div>
-
-            <!-- Vedações -->
-            <div>
-                <label for="vedacoes" class="block text-sm font-medium text-gray-700 mb-2">
-                    <i class="fas fa-ban mr-2 text-primary-600"></i>
-                    Vedações (Opcional)
-                </label>
-                <textarea id="vedacoes" name="vedacoes" rows="4"
-                          class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
-                          placeholder="Limitações ou vedações que devem ser consideradas..."></textarea>
+            <!-- Campos específicos para outros objetivos -->
+            <div id="campos-outros" class="hidden">
+                <!-- Instruções Adicionais -->
+                <div>
+                    <label for="instrucoes_adicionais" class="block text-sm font-medium text-gray-700 mb-2">
+                        <i class="fas fa-info-circle mr-2 text-primary-600"></i>
+                        Instruções Adicionais (Opcional)
+                    </label>
+                    <textarea id="instrucoes_adicionais" name="instrucoes_adicionais" rows="4"
+                              class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
+                              placeholder="Instruções específicas para o documento..."></textarea>
+                </div>
             </div>
 
             <!-- Seleção de Prompt -->
@@ -386,7 +426,7 @@
                 <button type="button" onclick="enviarFormulario()" 
                         class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
                     <i class="fas fa-magic mr-2"></i>
-                    Gerar Minuta
+                    <span id="btn-gerar-texto">Gerar Minuta</span>
                 </button>
             </div>
         </form>
@@ -397,7 +437,7 @@
         <div class="flex items-center justify-between mb-4">
             <h3 class="text-lg font-medium text-gray-900">
                 <i class="fas fa-file-alt mr-2 text-primary-600"></i>
-                Minuta Gerada
+                <span id="resultado-titulo">Minuta Gerada</span>
             </h3>
             <div class="flex space-x-2">
                 <button onclick="copiarMinuta()" 

@@ -379,6 +379,7 @@ class Prompt(db.Model):
     name = db.Column(db.String(100), nullable=False)
     content = db.Column(db.Text, nullable=False)
     ai_model = db.Column(db.String(50), nullable=False)
+    objetivo = db.Column(db.String(50), default='minuta')  # minuta, resumo, relatorio
     is_default = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
 
@@ -504,6 +505,19 @@ def set_app_config(key, value, description=None):
 def get_default_ai_model():
     """Obtém o modelo de IA padrão da aplicação"""
     return get_app_config('default_ai_model', 'gemini-2.5-pro')
+
+def get_prompts_by_objetivo(objetivo):
+    """Obtém prompts de um objetivo específico"""
+    return Prompt.query.filter_by(objetivo=objetivo).order_by(Prompt.name).all()
+
+def get_default_prompt_by_objetivo(objetivo):
+    """Obtém o prompt padrão de um objetivo específico"""
+    return Prompt.query.filter_by(objetivo=objetivo, is_default=True).first()
+
+def get_all_objetivos():
+    """Obtém lista de todos os objetivos disponíveis"""
+    objetivos = db.session.query(Prompt.objetivo).distinct().all()
+    return [obj[0] for obj in objetivos]
 
 def get_general_instructions():
     """Obtém as instruções gerais"""
@@ -1012,12 +1026,16 @@ def generate_minuta():
     try:
         data = request.get_json()
         
+        # Obter o objetivo selecionado (default: minuta)
+        objetivo = data.get('objetivo', 'minuta')
+        
         # Validação dos campos obrigatórios
         if not data.get('pecas_processuais') or len(data['pecas_processuais']) == 0:
             return jsonify({'error': 'Pelo menos uma peça processual é obrigatória.'}), 400
         
-        if not data.get('como_decidir'):
-            return jsonify({'error': 'O campo "Como decidir" é obrigatório.'}), 400
+        # Validação específica para minutas
+        if objetivo == 'minuta' and not data.get('como_decidir'):
+            return jsonify({'error': 'O campo "Como decidir" é obrigatório para minutas.'}), 400
         
         # Limpar número do processo (apenas números)
         numero_processo = data.get('numero_processo', '')
@@ -1029,10 +1047,14 @@ def generate_minuta():
         if prompt_id:
             prompt = db.session.get(Prompt, int(prompt_id))
         else:
-            prompt = Prompt.query.filter_by(is_default=True).first()
+            # Buscar prompt padrão do objetivo específico
+            prompt = get_default_prompt_by_objetivo(objetivo)
+            if not prompt:
+                # Fallback para prompt padrão geral
+                prompt = Prompt.query.filter_by(is_default=True).first()
         
         if not prompt:
-            return jsonify({'error': 'Nenhum prompt encontrado.'}), 400
+            return jsonify({'error': f'Nenhum prompt encontrado para o objetivo "{objetivo}".'}), 400
         
         # Usar o modelo de IA selecionado pelo usuário
         ai_model_id = data.get('ai_model_id')
@@ -1066,12 +1088,18 @@ def generate_minuta():
         prompt_content = prompt.content
         prompt_content = prompt_content.replace('{{numero_processo}}', numero_processo if numero_processo else 'Não informado')
         prompt_content = prompt_content.replace('{{pecas_processuais}}', pecas_texto)
-        prompt_content = prompt_content.replace('{{como_decidir}}', data.get('como_decidir', ''))
-        prompt_content = prompt_content.replace('{{fundamentos}}', data.get('fundamentos', ''))
-        prompt_content = prompt_content.replace('{{vedacoes}}', data.get('vedacoes', ''))
+        
+        # Placeholders específicos para minutas
+        if objetivo == 'minuta':
+            prompt_content = prompt_content.replace('{{como_decidir}}', data.get('como_decidir', ''))
+            prompt_content = prompt_content.replace('{{fundamentos}}', data.get('fundamentos', ''))
+            prompt_content = prompt_content.replace('{{vedacoes}}', data.get('vedacoes', ''))
+        else:
+            # Placeholders para outros objetivos
+            prompt_content = prompt_content.replace('{{instrucoes_adicionais}}', data.get('instrucoes_adicionais', ''))
         
         # Gerar resposta usando IA com o modelo selecionado
-        minuta, tokens_info = ai_manager.generate_response(
+        resultado, tokens_info = ai_manager.generate_response(
             prompt=prompt_content,
             model=ai_model_id,
             max_tokens=2000
@@ -1079,7 +1107,7 @@ def generate_minuta():
         
         # Preparar resposta
         response_data = {
-            'minuta': minuta,
+            'resultado': resultado,  # Nome genérico para compatibilidade
             'tokens_info': {
                 'request_tokens': tokens_info.get('request_tokens', 0) if tokens_info else 0,
                 'response_tokens': tokens_info.get('response_tokens', 0) if tokens_info else 0,
@@ -1091,9 +1119,13 @@ def generate_minuta():
             'user_cost': format_cost_for_user(tokens_info.get('cost_info', {}).get('total_cost', 0) if tokens_info else 0)
         }
         
+        # Manter compatibilidade com código existente
+        if objetivo == 'minuta':
+            response_data['minuta'] = resultado
+        
         # Salvar debug request
         save_debug_request(
-            action='generate_minuta',
+            action=f'generate_{objetivo}',
             request_data=data,
             response_data=response_data,
             prompt_used=prompt_content,
@@ -1106,7 +1138,7 @@ def generate_minuta():
         # Log de uso detalhado
         log = UsageLog(
             user_id=current_user.id,
-            action='generate_minuta',
+            action=f'generate_{objetivo}',
             tokens_used=tokens_info.get('total_tokens', 0) if tokens_info else 0,
             request_tokens=tokens_info.get('request_tokens', 0) if tokens_info else 0,
             response_tokens=tokens_info.get('response_tokens', 0) if tokens_info else 0,
@@ -1123,7 +1155,7 @@ def generate_minuta():
         # Salvar debug request de erro
         error_response = {'error': str(e)}
         save_debug_request(
-            action='generate_minuta',
+            action=f'generate_{data.get("objetivo", "minuta")}',
             request_data=data if 'data' in locals() else {},
             response_data=error_response,
             success=False,
@@ -1133,7 +1165,7 @@ def generate_minuta():
         # Log de erro
         log = UsageLog(
             user_id=current_user.id,
-            action='generate_minuta',
+            action=f'generate_{data.get("objetivo", "minuta")}',
             tokens_used=0,
             success=False,
             error_message=str(e)
@@ -1166,6 +1198,9 @@ def adjust_minuta():
     try:
         data = request.get_json()
         
+        # Obter o objetivo selecionado (default: minuta)
+        objetivo = data.get('objetivo', 'minuta')
+        
         # Validação dos campos obrigatórios
         if not data.get('adjustment_prompt'):
             return jsonify({'error': 'O prompt de ajuste é obrigatório.'}), 400
@@ -1187,13 +1222,15 @@ def adjust_minuta():
         if original_prompt_id:
             original_prompt = db.session.get(Prompt, int(original_prompt_id))
         else:
-            # Fallback: usar prompt padrão
-            original_prompt = Prompt.query.filter_by(is_default=True).first()
+            # Fallback: usar prompt padrão do objetivo
+            original_prompt = get_default_prompt_by_objetivo(objetivo)
+            if not original_prompt:
+                original_prompt = Prompt.query.filter_by(is_default=True).first()
             if not original_prompt:
                 original_prompt = Prompt.query.first()
         
         if not original_prompt:
-            return jsonify({'error': 'Nenhum prompt original encontrado.'}), 400
+            return jsonify({'error': f'Nenhum prompt original encontrado para o objetivo "{objetivo}".'}), 400
         
         # Reconstruir o prompt original com os dados
         numero_processo = data.get('numero_processo', '')
@@ -1223,9 +1260,14 @@ def adjust_minuta():
         prompt_original_content = original_prompt.content
         prompt_original_content = prompt_original_content.replace('{{numero_processo}}', numero_processo if numero_processo else 'Não informado')
         prompt_original_content = prompt_original_content.replace('{{pecas_processuais}}', pecas_texto_original)
-        prompt_original_content = prompt_original_content.replace('{{como_decidir}}', data.get('como_decidir', ''))
-        prompt_original_content = prompt_original_content.replace('{{fundamentos}}', data.get('fundamentos', ''))
-        prompt_original_content = prompt_original_content.replace('{{vedacoes}}', data.get('vedacoes', ''))
+        
+        # Placeholders específicos por objetivo
+        if objetivo == 'minuta':
+            prompt_original_content = prompt_original_content.replace('{{como_decidir}}', data.get('como_decidir', ''))
+            prompt_original_content = prompt_original_content.replace('{{fundamentos}}', data.get('fundamentos', ''))
+            prompt_original_content = prompt_original_content.replace('{{vedacoes}}', data.get('vedacoes', ''))
+        else:
+            prompt_original_content = prompt_original_content.replace('{{instrucoes_adicionais}}', data.get('instrucoes_adicionais', ''))
         
         # Obter o prompt de ajuste da configuração
         adjustment_prompt_template = get_adjustment_prompt()
@@ -1237,7 +1279,7 @@ def adjust_minuta():
         adjustment_prompt = adjustment_prompt.replace('{{PEDIDO_DE_AJUSTE}}', data.get('adjustment_prompt', ''))
         
         # Gerar resposta usando IA
-        minuta_ajustada, tokens_info = ai_manager.generate_response(
+        resultado_ajustado, tokens_info = ai_manager.generate_response(
             prompt=adjustment_prompt,
             model=ai_model_id,
             max_tokens=2000
@@ -1245,7 +1287,7 @@ def adjust_minuta():
         
         # Preparar resposta
         response_data = {
-            'minuta': minuta_ajustada,
+            'resultado': resultado_ajustado,  # Nome genérico para compatibilidade
             'tokens_info': {
                 'request_tokens': tokens_info.get('request_tokens', 0) if tokens_info else 0,
                 'response_tokens': tokens_info.get('response_tokens', 0) if tokens_info else 0,
@@ -1257,9 +1299,13 @@ def adjust_minuta():
             'user_cost': format_cost_for_user(tokens_info.get('cost_info', {}).get('total_cost', 0) if tokens_info else 0)
         }
         
+        # Manter compatibilidade com código existente
+        if objetivo == 'minuta':
+            response_data['minuta'] = resultado_ajustado
+        
         # Salvar debug request
         save_debug_request(
-            action='adjust_minuta',
+            action=f'adjust_{objetivo}',
             request_data=data,
             response_data=response_data,
             prompt_used=adjustment_prompt,
@@ -1272,7 +1318,7 @@ def adjust_minuta():
         # Log de uso detalhado
         log = UsageLog(
             user_id=current_user.id,
-            action='adjust_minuta',
+            action=f'adjust_{objetivo}',
             tokens_used=tokens_info.get('total_tokens', 0) if tokens_info else 0,
             request_tokens=tokens_info.get('request_tokens', 0) if tokens_info else 0,
             response_tokens=tokens_info.get('response_tokens', 0) if tokens_info else 0,
@@ -1289,7 +1335,7 @@ def adjust_minuta():
         # Salvar debug request de erro
         error_response = {'error': str(e)}
         save_debug_request(
-            action='adjust_minuta',
+            action=f'adjust_{data.get("objetivo", "minuta")}',
             request_data=data if 'data' in locals() else {},
             response_data=error_response,
             success=False,
@@ -1299,7 +1345,7 @@ def adjust_minuta():
         # Log de erro
         log = UsageLog(
             user_id=current_user.id,
-            action='adjust_minuta',
+            action=f'adjust_{data.get("objetivo", "minuta")}',
             tokens_used=0,
             success=False,
             error_message=str(e)
@@ -1406,6 +1452,7 @@ def admin_prompts():
             name = request.form.get('name')
             content = request.form.get('content')
             ai_model = request.form.get('ai_model')
+            objetivo = request.form.get('objetivo', 'minuta')
             is_default = request.form.get('is_default') == 'on'
             
             # Verificar se o modelo está habilitado
@@ -1413,10 +1460,10 @@ def admin_prompts():
                 flash(f'Erro: Modelo {ai_model} não está habilitado no sistema.', 'error')
             else:
                 if is_default:
-                    # Desmarcar outros prompts como default
-                    Prompt.query.update({'is_default': False})
+                    # Desmarcar outros prompts do mesmo objetivo como default
+                    Prompt.query.filter_by(objetivo=objetivo).update({'is_default': False})
                 
-                prompt = Prompt(name=name, content=content, ai_model=ai_model, is_default=is_default)
+                prompt = Prompt(name=name, content=content, ai_model=ai_model, objetivo=objetivo, is_default=is_default)
                 db.session.add(prompt)
                 db.session.commit()
                 flash('Prompt criado com sucesso.', 'success')
@@ -1434,6 +1481,7 @@ def admin_prompts():
             name = request.form.get('name')
             content = request.form.get('content')
             ai_model = request.form.get('ai_model')
+            objetivo = request.form.get('objetivo', 'minuta')
             is_default = request.form.get('is_default') == 'on'
             
             if prompt_id:
@@ -1444,12 +1492,13 @@ def admin_prompts():
                         flash(f'Erro: Modelo {ai_model} não está habilitado no sistema.', 'error')
                     else:
                         if is_default:
-                            # Desmarcar outros prompts como default
-                            Prompt.query.update({'is_default': False})
+                            # Desmarcar outros prompts do mesmo objetivo como default
+                            Prompt.query.filter_by(objetivo=objetivo).update({'is_default': False})
                         
                         prompt.name = name
                         prompt.content = content
                         prompt.ai_model = ai_model
+                        prompt.objetivo = objetivo
                         prompt.is_default = is_default
                         
                         db.session.commit()
@@ -1459,7 +1508,12 @@ def admin_prompts():
             else:
                 flash('ID do prompt não fornecido.', 'error')
     
-    prompts = Prompt.query.all()
+    # Organizar prompts por objetivo
+    prompts_by_objetivo = {}
+    for prompt in Prompt.query.order_by(Prompt.objetivo, Prompt.name).all():
+        if prompt.objetivo not in prompts_by_objetivo:
+            prompts_by_objetivo[prompt.objetivo] = []
+        prompts_by_objetivo[prompt.objetivo].append(prompt)
     
     # Obter apenas modelos habilitados do sistema
     enabled_models = get_enabled_models()
@@ -1484,13 +1538,20 @@ def admin_prompts():
         'pecas_processuais': '{{pecas_processuais}}',
         'como_decidir': '{{como_decidir}}',
         'fundamentos': '{{fundamentos}}',
-        'vedacoes': '{{vedacoes}}'
+        'vedacoes': '{{vedacoes}}',
+        'instrucoes_adicionais': '{{instrucoes_adicionais}}'
     }
     
+    # Obter lista de objetivos disponíveis
+    objetivos = get_all_objetivos()
+    if not objetivos:
+        objetivos = ['minuta', 'resumo', 'relatorio']
+    
     return render_template('admin_prompts.html', 
-                         prompts=prompts, 
+                         prompts_by_objetivo=prompts_by_objetivo,
                          models_by_provider=models_by_provider,
                          default_model='gemini-2.5-pro',
+                         objetivos=objetivos,
                          **placeholders)
 
 @app.route('/admin/logs')
@@ -1537,8 +1598,15 @@ def admin_stats():
     # Estatísticas gerais
     total_logs = UsageLog.query.count()
     total_tokens = db.session.query(db.func.sum(UsageLog.tokens_used)).scalar() or 0
-    total_requests = UsageLog.query.filter_by(action='generate_minuta').count()
-    successful_requests = UsageLog.query.filter_by(action='generate_minuta', success=True).count()
+    
+    # Contar todas as ações de geração (múltiplos objetivos)
+    total_requests = UsageLog.query.filter(
+        UsageLog.action.like('generate_%')
+    ).count()
+    successful_requests = UsageLog.query.filter(
+        UsageLog.action.like('generate_%'),
+        UsageLog.success == True
+    ).count()
     
     # Calcular custos totais estimados
     total_cost_usd = 0
@@ -1727,6 +1795,24 @@ def get_available_models():
             'error': 'Erro ao carregar modelos do banco de dados',
             'models': []
         })
+
+@app.route('/api/prompts/<objetivo>')
+@login_required
+def get_prompts_by_objetivo_api(objetivo):
+    """API para obter prompts de um objetivo específico"""
+    try:
+        prompts = get_prompts_by_objetivo(objetivo)
+        prompts_data = []
+        for prompt in prompts:
+            prompts_data.append({
+                'id': prompt.id,
+                'name': prompt.name,
+                'ai_model': prompt.ai_model,
+                'is_default': prompt.is_default
+            })
+        return jsonify({'prompts': prompts_data})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/admin/config', methods=['GET', 'POST'])
 @login_required

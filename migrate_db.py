@@ -110,6 +110,37 @@ Pronto. Pode confeccionar a nova minuta agora."""
         print(f"❌ Erro ao criar configuração do prompt de ajuste: {e}")
         return False
 
+def add_objetivo_column_to_prompt():
+    """Adiciona a coluna 'objetivo' na tabela Prompt se não existir"""
+    try:
+        from app import Prompt
+        
+        # Verificar se a coluna já existe
+        inspector = inspect(db.engine)
+        columns = [col['name'] for col in inspector.get_columns('prompt')]
+        
+        if 'objetivo' not in columns:
+            print("🔄 Adicionando coluna 'objetivo' na tabela prompt...")
+            
+            # Adicionar a coluna
+            with db.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE prompt ADD COLUMN objetivo VARCHAR(50) DEFAULT 'minuta'"))
+                conn.commit()
+            
+            # Atualizar prompts existentes para ter objetivo 'minuta'
+            with db.engine.connect() as conn:
+                conn.execute(text("UPDATE prompt SET objetivo = 'minuta' WHERE objetivo IS NULL"))
+                conn.commit()
+            
+            print("✅ Coluna 'objetivo' adicionada com sucesso!")
+            return True
+        else:
+            print("✅ Coluna 'objetivo' já existe na tabela prompt")
+            return False
+    except Exception as e:
+        print(f"❌ Erro ao adicionar coluna 'objetivo': {e}")
+        return False
+
 def migrate_database():
     """Executa todas as migrações necessárias"""
     print("🚀 Iniciando migração do banco de dados...")
@@ -132,6 +163,7 @@ def migrate_database():
             ("Tabela EprocCredentials", create_eproc_credentials_table),
             ("Tabela AIModel", create_ai_model_table),
             ("Configuração do Prompt de Ajuste", create_adjustment_prompt_config),
+            ("Coluna objetivo na tabela Prompt", add_objetivo_column_to_prompt),
         ]
         
         # Executar migrações

@@ -187,7 +187,7 @@ diria/
 ├── README.md             # Documentação
 ├── templates/            # Templates HTML
 │   ├── base.html         # Template base
-│   ├── dashboard.html    # Dashboard principal
+│   ├── dashboard_eproc.html # Dashboard principal com integração eproc
 │   ├── login.html        # Página de login
 │   └── admin_*.html      # Páginas administrativas
 ├── static/               # Arquivos estáticos

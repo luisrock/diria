@@ -16,7 +16,112 @@ let dragSource = null;
 let dragTarget = null;
 let currentFormData = null; // Dados do formulário original
 let ordemInvertida = false; // Nova variável para controlar a ordem
+let objetivoAtual = 'minuta'; // Objetivo selecionado atualmente
 
+
+// Função para selecionar objetivo
+function selecionarObjetivo(objetivo) {
+    objetivoAtual = objetivo;
+    
+    // Atualizar botões
+    const botoes = document.querySelectorAll('.objetivo-btn');
+    botoes.forEach(btn => {
+        btn.classList.remove('bg-primary-600', 'text-white', 'hover:bg-primary-700', 'focus:ring-primary-500');
+        btn.classList.add('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300', 'focus:ring-gray-500');
+    });
+    
+    // Ativar botão selecionado
+    const botaoSelecionado = document.getElementById(`btn-${objetivo}`);
+    if (botaoSelecionado) {
+        botaoSelecionado.classList.remove('bg-gray-200', 'text-gray-700', 'hover:bg-gray-300', 'focus:ring-gray-500');
+        botaoSelecionado.classList.add('bg-primary-600', 'text-white', 'hover:bg-primary-700', 'focus:ring-primary-500');
+    }
+    
+    // Atualizar campo hidden
+    document.getElementById('objetivo_selecionado').value = objetivo;
+    
+    // Atualizar textos dinamicamente
+    atualizarTextosDinamicos(objetivo);
+    
+    // Mostrar/ocultar campos específicos
+    const camposMinuta = document.getElementById('campos-minuta');
+    const camposOutros = document.getElementById('campos-outros');
+    
+    if (objetivo === 'minuta') {
+        camposMinuta.classList.remove('hidden');
+        camposOutros.classList.add('hidden');
+        
+        // Tornar campos obrigatórios
+        document.getElementById('como_decidir').required = true;
+        document.getElementById('instrucoes_adicionais').required = false;
+    } else {
+        camposMinuta.classList.add('hidden');
+        camposOutros.classList.remove('hidden');
+        
+        // Tornar campos obrigatórios
+        document.getElementById('como_decidir').required = false;
+        document.getElementById('instrucoes_adicionais').required = false;
+    }
+    
+    // Carregar prompts do objetivo selecionado
+    carregarPromptsPorObjetivo(objetivo);
+}
+
+// Função para atualizar textos dinamicamente baseado no objetivo
+function atualizarTextosDinamicos(objetivo) {
+    const btnGerarTexto = document.getElementById('btn-gerar-texto');
+    const resultadoTitulo = document.getElementById('resultado-titulo');
+    
+    const textos = {
+        'minuta': {
+            btn: 'Gerar Minuta',
+            titulo: 'Minuta Gerada'
+        },
+        'resumo': {
+            btn: 'Gerar Resumo',
+            titulo: 'Resumo Gerado'
+        },
+        'relatorio': {
+            btn: 'Gerar Relatório',
+            titulo: 'Relatório Gerado'
+        }
+    };
+    
+    const texto = textos[objetivo] || textos['minuta'];
+    
+    if (btnGerarTexto) {
+        btnGerarTexto.textContent = texto.btn;
+    }
+    
+    if (resultadoTitulo) {
+        resultadoTitulo.textContent = texto.titulo;
+    }
+}
+
+// Função para carregar prompts por objetivo
+async function carregarPromptsPorObjetivo(objetivo) {
+    try {
+        const response = await fetch(`/api/prompts/${objetivo}`);
+        const data = await response.json();
+        
+        if (data.prompts) {
+            const promptSelect = document.getElementById('prompt_select');
+            promptSelect.innerHTML = '';
+            
+            data.prompts.forEach(prompt => {
+                const option = document.createElement('option');
+                option.value = prompt.id;
+                option.textContent = prompt.name;
+                if (prompt.is_default) {
+                    option.selected = true;
+                }
+                promptSelect.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Erro ao carregar prompts:', error);
+    }
+}
 
 // Função para limpar número do processo (apenas números)
 function limparNumeroProcesso(input) {
@@ -891,6 +996,9 @@ document.addEventListener('DOMContentLoaded', function() {
     initializeDragAndDrop();
     initializeCKEditor();
     updateContadorPecas();
+    
+    // Inicializar textos dinâmicos
+    atualizarTextosDinamicos(objetivoAtual);
 });
 
 // Inicializar sistema de drag and drop
@@ -1380,13 +1488,20 @@ async function enviarFormulario() {
         // Coletar dados do formulário
         const formData = {
             numero_processo: document.getElementById('numero_processo').value,
+            objetivo: objetivoAtual,
             pecas_processuais: [],
-            como_decidir: document.getElementById('como_decidir').value,
-            fundamentos: document.getElementById('fundamentos').value,
-            vedacoes: document.getElementById('vedacoes').value,
             prompt_id: document.getElementById('prompt_select').value,
             ai_model_id: document.getElementById('ai_model_select').value
         };
+        
+        // Adicionar campos específicos baseados no objetivo
+        if (objetivoAtual === 'minuta') {
+            formData.como_decidir = document.getElementById('como_decidir').value;
+            formData.fundamentos = document.getElementById('fundamentos').value;
+            formData.vedacoes = document.getElementById('vedacoes').value;
+        } else {
+            formData.instrucoes_adicionais = document.getElementById('instrucoes_adicionais').value;
+        }
     
     // Obter peças ordenadas
     const pecasOrdenadas = obterPecasOrdenadas();
@@ -1424,8 +1539,16 @@ async function enviarFormulario() {
             // Salvar dados do formulário para uso em ajustes
             currentFormData = formData;
             
-            // Converter o texto da minuta para HTML formatado
-            const formattedMinuta = formatMinutaToHtml(result.minuta);
+            // Obter o resultado (pode ser 'minuta' ou 'resultado')
+            const resultado = result.minuta || result.resultado;
+            
+            if (!resultado) {
+                showNotification('Erro: Nenhum resultado recebido do servidor', 'error');
+                return;
+            }
+            
+            // Converter o texto para HTML formatado
+            const formattedResult = formatMinutaToHtml(resultado);
             
             // Mostrar resultado
             const resultadoDiv = document.getElementById('resultado');
@@ -1441,7 +1564,7 @@ async function enviarFormulario() {
             
             // Definir o conteúdo no editor
             if (editor) {
-                editor.setData(formattedMinuta);
+                editor.setData(formattedResult);
             }
             
             
@@ -2016,6 +2139,7 @@ async function requestAdjustment() {
                 // Preparar dados para o ajuste
         const adjustmentData = {
             ...currentFormData,
+            objetivo: objetivoAtual,
             adjustment_prompt: adjustPrompt,
             current_content: currentContent,
             model_id: adjustModel
@@ -2040,8 +2164,16 @@ async function requestAdjustment() {
         
         
         if (response.ok) {
+            // Obter o resultado (pode ser 'minuta' ou 'resultado')
+            const resultado = result.minuta || result.resultado;
+            
+            if (!resultado) {
+                showNotification('Erro: Nenhum resultado recebido do servidor', 'error');
+                return;
+            }
+            
             // Criar nova versão
-            createNewVersion(result.minuta, adjustPrompt, result.tokens_info, result.cost_info, result.user_cost);
+            createNewVersion(resultado, adjustPrompt, result.tokens_info, result.cost_info, result.user_cost);
             
             // Fechar modal
             hideAdjustDialog();
@@ -2195,18 +2327,11 @@ function createNewVersion(content, adjustmentPrompt, tokensInfo, costInfo, user_
                     '|',
                     'bold',
                     'italic',
-                    'underline',
-                    'strikethrough',
-                    '|',
-                    'bulletedList',
-                    'numberedList',
                     '|',
                     'indent',
                     'outdent',
                     '|',
-                    'link',
                     'blockQuote',
-                    'insertTable',
                     '|',
                     'undo',
                     'redo'
@@ -2217,7 +2342,9 @@ function createNewVersion(content, adjustmentPrompt, tokensInfo, costInfo, user_
         })
         .then(newEditor => {
             editors[versionId] = newEditor;
-            newEditor.setData(content);
+            // Formatar o conteúdo como HTML antes de definir no editor
+            const formattedContent = formatMinutaToHtml(content);
+            newEditor.setData(formattedContent);
         })
         .catch(error => {
             console.error('Erro ao inicializar CKEditor para versão:', error);

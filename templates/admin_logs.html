@@ -32,8 +32,8 @@
                     <i class="fas fa-file-alt text-2xl text-blue-600"></i>
                 </div>
                 <div class="ml-4">
-                    <p class="text-sm font-medium text-gray-600">Total de Minutas</p>
-                    <p class="text-2xl font-semibold text-gray-900">{{ logs|selectattr('action', 'equalto', 'generate_minuta')|list|length }}</p>
+                    <p class="text-sm font-medium text-gray-600">Total de Gerações</p>
+                    <p class="text-2xl font-semibold text-gray-900">{{ logs|selectattr('action', 'equalto', 'generate_minuta')|list|length + logs|selectattr('action', 'equalto', 'generate_resumo')|list|length + logs|selectattr('action', 'equalto', 'generate_relatorio')|list|length }}</p>
                 </div>
             </div>
         </div>
@@ -114,12 +114,32 @@
                             </div>
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap">
-                            {% if log.action == 'generate_minuta' %}
-                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                <i class="fas fa-file-alt mr-1"></i>Geração de Minuta
-                            </span>
+                            {% if log.action.startswith('generate_') %}
+                                {% set objetivo = log.action.replace('generate_', '') %}
+                                {% if objetivo == 'minuta' %}
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                    <i class="fas fa-file-alt mr-1"></i>Geração de Minuta
+                                </span>
+                                {% elif objetivo == 'resumo' %}
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                    <i class="fas fa-file-text mr-1"></i>Geração de Resumo
+                                </span>
+                                {% elif objetivo == 'relatorio' %}
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                    <i class="fas fa-chart-bar mr-1"></i>Geração de Relatório
+                                </span>
+                                {% else %}
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                    <i class="fas fa-cog mr-1"></i>Geração de {{ objetivo|title }}
+                                </span>
+                                {% endif %}
+                            {% elif log.action.startswith('adjust_') %}
+                                {% set objetivo = log.action.replace('adjust_', '') %}
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                    <i class="fas fa-edit mr-1"></i>Ajuste de {{ objetivo|title }}
+                                </span>
                             {% else %}
-                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
                                 <i class="fas fa-cog mr-1"></i>{{ log.action }}
                             </span>
                             {% endif %}

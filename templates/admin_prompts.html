@@ -60,12 +60,21 @@
         </h3>
         <form method="POST" class="space-y-4">
             <input type="hidden" name="action" value="create">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                     <label for="name" class="block text-sm font-medium text-gray-700">Nome do Prompt</label>
                     <input type="text" id="name" name="name" required
                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm"
                            placeholder="Ex: Decisão Padrão">
+                </div>
+                <div>
+                    <label for="objetivo" class="block text-sm font-medium text-gray-700">Objetivo</label>
+                    <select id="objetivo" name="objetivo" required
+                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
+                        <option value="minuta">Minuta</option>
+                        <option value="resumo">Resumo</option>
+                        <option value="relatorio">Relatório</option>
+                    </select>
                 </div>
                 <div>
                     <label for="ai_model" class="block text-sm font-medium text-gray-700">Modelo de IA</label>
@@ -90,7 +99,8 @@
                           placeholder="Digite o prompt aqui. Use {{placeholder}} para campos do formulário..."></textarea>
                 <div class="mt-2">
                     <p class="text-xs text-gray-600 mb-2">Placeholders disponíveis (clique para copiar):</p>
-                    <div class="flex flex-wrap gap-2">
+                    <div id="placeholders-container" class="flex flex-wrap gap-2">
+                        <!-- Placeholders comuns a todos os objetivos -->
                         <button type="button" onclick="copyPlaceholder('{{numero_processo}}', this)" 
                                 class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
                             {{ "{{numero_processo}}" }}
@@ -99,18 +109,30 @@
                                 class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
                             {{ "{{pecas_processuais}}" }}
                         </button>
-                        <button type="button" onclick="copyPlaceholder('{{como_decidir}}', this)" 
-                                class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
-                            {{ "{{como_decidir}}" }}
-                        </button>
-                        <button type="button" onclick="copyPlaceholder('{{fundamentos}}', this)" 
-                                class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
-                            {{ "{{fundamentos}}" }}
-                        </button>
-                        <button type="button" onclick="copyPlaceholder('{{vedacoes}}', this)" 
-                                class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
-                            {{ "{{vedacoes}}" }}
-                        </button>
+                        
+                        <!-- Placeholders específicos para minuta -->
+                        <div id="placeholders-minuta">
+                            <button type="button" onclick="copyPlaceholder('{{como_decidir}}', this)" 
+                                    class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
+                                {{ "{{como_decidir}}" }}
+                            </button>
+                            <button type="button" onclick="copyPlaceholder('{{fundamentos}}', this)" 
+                                    class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
+                                {{ "{{fundamentos}}" }}
+                            </button>
+                            <button type="button" onclick="copyPlaceholder('{{vedacoes}}', this)" 
+                                    class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
+                                {{ "{{vedacoes}}" }}
+                            </button>
+                        </div>
+                        
+                        <!-- Placeholders específicos para outros objetivos -->
+                        <div id="placeholders-outros" class="hidden">
+                            <button type="button" onclick="copyPlaceholder('{{instrucoes_adicionais}}', this)" 
+                                    class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
+                                {{ "{{instrucoes_adicionais}}" }}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -134,57 +156,71 @@
             <i class="fas fa-list mr-2 text-green-600"></i>
             Prompts Configurados
         </h3>
-        <div class="space-y-4">
-            {% for prompt in prompts %}
-            <div class="border border-gray-200 rounded-lg p-4">
-                <div class="flex items-start justify-between">
-                    <div class="flex-1">
-                        <div class="flex items-center space-x-2 mb-2">
-                            <h4 class="text-lg font-medium text-gray-900">{{ prompt.name }}</h4>
-                            {% if prompt.is_default %}
-                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                <i class="fas fa-star mr-1"></i>Padrão
-                            </span>
-                            {% endif %}
-                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                <i class="fas fa-robot mr-1"></i>{{ prompt.ai_model }}
-                            </span>
-                        </div>
-                        <div class="bg-gray-50 border border-gray-200 rounded-md p-3">
-                            <div class="prompt-content" id="prompt-content-{{ prompt.id }}">
-                            <p class="text-sm text-gray-700 whitespace-pre-wrap">{{ prompt.content }}</p>
+        <div class="space-y-6">
+            {% for objetivo, prompts in prompts_by_objetivo.items() %}
+            <div>
+                <h4 class="text-md font-medium text-gray-800 mb-3 border-b border-gray-200 pb-2">
+                    <i class="fas fa-tag mr-2 text-{{ 'green' if objetivo == 'minuta' else 'blue' if objetivo == 'resumo' else 'purple' }}-600"></i>
+                    {{ objetivo|title }}s
+                </h4>
+                <div class="space-y-4">
+                    {% for prompt in prompts %}
+                    <div class="border border-gray-200 rounded-lg p-4">
+                        <div class="flex items-start justify-between">
+                            <div class="flex-1">
+                                <div class="flex items-center space-x-2 mb-2">
+                                    <h4 class="text-lg font-medium text-gray-900">{{ prompt.name }}</h4>
+                                    {% if prompt.is_default %}
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                        <i class="fas fa-star mr-1"></i>Padrão
+                                    </span>
+                                    {% endif %}
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                        <i class="fas fa-robot mr-1"></i>{{ prompt.ai_model }}
+                                    </span>
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                        <i class="fas fa-tag mr-1"></i>{{ prompt.objetivo|title }}
+                                    </span>
+                                </div>
+                                <div class="bg-gray-50 border border-gray-200 rounded-md p-3">
+                                    <div class="prompt-content" id="prompt-content-{{ prompt.id }}">
+                                    <p class="text-sm text-gray-700 whitespace-pre-wrap">{{ prompt.content }}</p>
+                                    </div>
+                                    <div class="mt-2 text-center">
+                                        <button type="button" 
+                                                onclick="togglePromptContent({{ prompt.id }})" 
+                                                class="prompt-toggle-btn text-xs text-blue-600 hover:text-blue-800 font-medium">
+                                            <i class="fas fa-chevron-down mr-1"></i>
+                                            Ver mais
+                                        </button>
+                                    </div>
+                                </div>
+                                <p class="text-xs text-gray-500 mt-2">
+                                    Criado em: {{ prompt.created_at.strftime('%d/%m/%Y %H:%M') }}
+                                </p>
                             </div>
-                            <div class="mt-2 text-center">
-                                <button type="button" 
-                                        onclick="togglePromptContent({{ prompt.id }})" 
-                                        class="prompt-toggle-btn text-xs text-blue-600 hover:text-blue-800 font-medium">
-                                    <i class="fas fa-chevron-down mr-1"></i>
-                                    Ver mais
+                            <div class="ml-4 flex space-x-2">
+                                <button onclick="editPrompt(this)" 
+                                        data-prompt-id="{{ prompt.id }}"
+                                        data-prompt-name="{{ prompt.name|e }}"
+                                        data-prompt-content="{{ prompt.content|e }}"
+                                        data-prompt-model="{{ prompt.ai_model|e }}"
+                                        data-prompt-objetivo="{{ prompt.objetivo|e }}"
+                                        data-prompt-default="{{ 'true' if prompt.is_default else 'false' }}"
+                                        class="text-blue-600 hover:text-blue-900" title="Editar">
+                                    <i class="fas fa-edit"></i>
                                 </button>
+                                <form method="POST" onsubmit="return confirm('Tem certeza que deseja excluir este prompt?')" class="inline">
+                                    <input type="hidden" name="action" value="delete">
+                                    <input type="hidden" name="prompt_id" value="{{ prompt.id }}">
+                                    <button type="submit" class="text-red-600 hover:text-red-900" title="Excluir">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
                             </div>
                         </div>
-                        <p class="text-xs text-gray-500 mt-2">
-                            Criado em: {{ prompt.created_at.strftime('%d/%m/%Y %H:%M') }}
-                        </p>
                     </div>
-                    <div class="ml-4 flex space-x-2">
-                        <button onclick="editPrompt(this)" 
-                                data-prompt-id="{{ prompt.id }}"
-                                data-prompt-name="{{ prompt.name|e }}"
-                                data-prompt-content="{{ prompt.content|e }}"
-                                data-prompt-model="{{ prompt.ai_model|e }}"
-                                data-prompt-default="{{ 'true' if prompt.is_default else 'false' }}"
-                                class="text-blue-600 hover:text-blue-900" title="Editar">
-                            <i class="fas fa-edit"></i>
-                        </button>
-                        <form method="POST" onsubmit="return confirm('Tem certeza que deseja excluir este prompt?')" class="inline">
-                            <input type="hidden" name="action" value="delete">
-                            <input type="hidden" name="prompt_id" value="{{ prompt.id }}">
-                            <button type="submit" class="text-red-600 hover:text-red-900" title="Excluir">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        </form>
-                    </div>
+                    {% endfor %}
                 </div>
             </div>
             {% endfor %}
@@ -203,12 +239,21 @@
                     <input type="hidden" name="action" value="update">
                     <input type="hidden" id="edit_prompt_id" name="prompt_id">
                     
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
                             <label for="edit_name" class="block text-sm font-medium text-gray-700">Nome do Prompt</label>
                             <input type="text" id="edit_name" name="name" required
                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                                    placeholder="Ex: Decisão Padrão">
+                        </div>
+                        <div>
+                            <label for="edit_objetivo" class="block text-sm font-medium text-gray-700">Objetivo</label>
+                            <select id="edit_objetivo" name="objetivo" required
+                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                                <option value="minuta">Minuta</option>
+                                <option value="resumo">Resumo</option>
+                                <option value="relatorio">Relatório</option>
+                            </select>
                         </div>
                         <div>
                             <label for="edit_ai_model" class="block text-sm font-medium text-gray-700">Modelo de IA</label>
@@ -234,7 +279,8 @@
                                   placeholder="Digite o prompt aqui. Use {{placeholder}} para campos do formulário..."></textarea>
                         <div class="mt-2">
                             <p class="text-xs text-gray-600 mb-2">Placeholders disponíveis (clique para copiar):</p>
-                            <div class="flex flex-wrap gap-2">
+                            <div id="edit-placeholders-container" class="flex flex-wrap gap-2">
+                                <!-- Placeholders comuns a todos os objetivos -->
                                 <button type="button" onclick="copyPlaceholderToEdit('{{numero_processo}}', this)" 
                                         class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
                                     {{ "{{numero_processo}}" }}
@@ -243,18 +289,8 @@
                                         class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
                                     {{ "{{pecas_processuais}}" }}
                                 </button>
-                                <button type="button" onclick="copyPlaceholderToEdit('{{como_decidir}}', this)" 
-                                        class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
-                                    {{ "{{como_decidir}}" }}
-                                </button>
-                                <button type="button" onclick="copyPlaceholderToEdit('{{fundamentos}}', this)" 
-                                        class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
-                                    {{ "{{fundamentos}}" }}
-                                </button>
-                                <button type="button" onclick="copyPlaceholderToEdit('{{vedacoes}}', this)" 
-                                        class="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer">
-                                    {{ "{{vedacoes}}" }}
-                                </button>
+                                
+                                <!-- Placeholders específicos serão adicionados dinamicamente -->
                             </div>
                         </div>
                     </div>
@@ -347,15 +383,22 @@ function editPrompt(button) {
     const promptName = button.getAttribute('data-prompt-name');
     const promptContent = button.getAttribute('data-prompt-content');
     const promptModel = button.getAttribute('data-prompt-model');
+    const promptObjetivo = button.getAttribute('data-prompt-objetivo');
     const promptDefault = button.getAttribute('data-prompt-default');
 
     document.getElementById('edit_prompt_id').value = promptId;
     document.getElementById('edit_name').value = promptName;
+    document.getElementById('edit_objetivo').value = promptObjetivo;
     document.getElementById('edit_ai_model').value = promptModel;
     document.getElementById('edit_content').value = promptContent;
     document.getElementById('edit_is_default').checked = promptDefault === 'true';
 
     document.getElementById('editModal').classList.remove('hidden');
+    
+    // Atualizar placeholders baseado no objetivo do prompt
+    setTimeout(() => {
+        atualizarPlaceholdersEdit();
+    }, 100);
 }
 
 function closeEditModal() {
@@ -420,5 +463,79 @@ function togglePromptContent(promptId) {
         toggleBtn.innerHTML = '<i class="fas fa-chevron-up mr-1"></i>Ver menos';
     }
 }
+
+// Função para atualizar placeholders baseado no objetivo selecionado
+function atualizarPlaceholders() {
+    const objetivo = document.getElementById('objetivo').value;
+    const placeholdersMinuta = document.getElementById('placeholders-minuta');
+    const placeholdersOutros = document.getElementById('placeholders-outros');
+    
+    if (objetivo === 'minuta') {
+        placeholdersMinuta.classList.remove('hidden');
+        placeholdersOutros.classList.add('hidden');
+    } else {
+        placeholdersMinuta.classList.add('hidden');
+        placeholdersOutros.classList.remove('hidden');
+    }
+}
+
+// Função para atualizar placeholders no modal de edição
+function atualizarPlaceholdersEdit() {
+    const objetivo = document.getElementById('edit_objetivo').value;
+    const placeholdersContainer = document.getElementById('edit-placeholders-container');
+    
+    // Limpar TODOS os placeholders específicos (exceto os comuns)
+    const allButtons = placeholdersContainer.querySelectorAll('button');
+    allButtons.forEach(btn => {
+        const text = btn.textContent.trim();
+        // Remover todos os placeholders específicos, mantendo apenas os comuns
+        if (text === '{{como_decidir}}' || text === '{{fundamentos}}' || text === '{{vedacoes}}' || text === '{{instrucoes_adicionais}}') {
+            btn.remove();
+        }
+    });
+    
+    // Adicionar placeholders específicos baseado no objetivo
+    if (objetivo === 'minuta') {
+        const placeholders = [
+            '{{como_decidir}}',
+            '{{fundamentos}}',
+            '{{vedacoes}}'
+        ];
+        
+        placeholders.forEach(placeholder => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.onclick = `copyPlaceholderToEdit('${placeholder}', this)`;
+            button.className = 'inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer';
+            button.textContent = placeholder;
+            placeholdersContainer.appendChild(button);
+        });
+    } else {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.onclick = 'copyPlaceholderToEdit(\'{{instrucoes_adicionais}}\', this)';
+        button.className = 'inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-md hover:bg-blue-200 transition-colors cursor-pointer';
+        button.textContent = '{{instrucoes_adicionais}}';
+        placeholdersContainer.appendChild(button);
+    }
+}
+
+// Adicionar event listeners quando o documento carregar
+document.addEventListener('DOMContentLoaded', function() {
+    // Event listener para o dropdown de objetivo no formulário principal
+    const objetivoSelect = document.getElementById('objetivo');
+    if (objetivoSelect) {
+        objetivoSelect.addEventListener('change', atualizarPlaceholders);
+    }
+    
+    // Event listener para o dropdown de objetivo no modal de edição
+    const editObjetivoSelect = document.getElementById('edit_objetivo');
+    if (editObjetivoSelect) {
+        editObjetivoSelect.addEventListener('change', atualizarPlaceholdersEdit);
+    }
+    
+    // Inicializar placeholders
+    atualizarPlaceholders();
+});
 </script>
 {% endblock %} 
