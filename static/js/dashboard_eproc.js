@@ -148,15 +148,12 @@ function carregarModeloDoPrompt(aiModel) {
         const option = modelSelect.querySelector(`option[value="${aiModel}"]`);
         if (option) {
             option.selected = true;
-            console.log(`✅ Modelo do prompt selecionado: ${aiModel}`);
         } else {
             // Se não encontrar, usar o modelo padrão da aplicação
-            console.log(`⚠️ Modelo do prompt não encontrado: ${aiModel}. Usando padrão da aplicação.`);
             loadDefaultModel();
         }
     } else {
         // Se não há modelo especificado, usar o padrão da aplicação
-        console.log('⚠️ Nenhum modelo especificado. Usando padrão da aplicação.');
         loadDefaultModel();
     }
 }
