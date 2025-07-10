@@ -2101,6 +2101,9 @@ function loadAIModelsForAdjust() {
     
     adjustModelSelect.innerHTML = '';
     
+    // Obter o modelo usado na geração original
+    const originalModelId = currentFormData ? currentFormData.ai_model_id : null;
+    
     // Carregar modelos disponíveis
     fetch('/api/available_models')
         .then(response => response.json())
@@ -2122,26 +2125,43 @@ function loadAIModelsForAdjust() {
                 adjustModelSelect.appendChild(option);
             });
             
-            // Selecionar modelo default
-            return fetch('/api/default_model');
-        })
-        .then(response => response.json())
-        .then(defaultData => {
-            
-            // Acessar o ID do modelo default dentro do objeto retornado
-            const defaultModelId = defaultData.default_model || defaultData.id;
-            
-            const defaultOption = adjustModelSelect.querySelector(`option[value="${defaultModelId}"]`);
-            if (defaultOption) {
-                defaultOption.selected = true;
+            // Selecionar o modelo original se disponível, senão usar o padrão
+            if (originalModelId) {
+                const originalOption = adjustModelSelect.querySelector(`option[value="${originalModelId}"]`);
+                if (originalOption) {
+                    originalOption.selected = true;
+                } else {
+                    // Se o modelo original não estiver disponível, usar o padrão
+                    return fetch('/api/default_model');
+                }
             } else {
-                if (adjustModelSelect.options.length > 0) {
-                    adjustModelSelect.selectedIndex = 0;
+                // Se não há modelo original, usar o padrão
+                return fetch('/api/default_model');
+            }
+        })
+        .then(response => {
+            if (response) {
+                return response.json();
+            }
+            return null;
+        })
+        .then(defaultData => {
+            if (defaultData) {
+                // Acessar o ID do modelo default dentro do objeto retornado
+                const defaultModelId = defaultData.default_model || defaultData.id;
+                
+                const defaultOption = adjustModelSelect.querySelector(`option[value="${defaultModelId}"]`);
+                if (defaultOption) {
+                    defaultOption.selected = true;
+                } else {
+                    if (adjustModelSelect.options.length > 0) {
+                        adjustModelSelect.selectedIndex = 0;
+                    }
                 }
             }
         })
         .catch(error => {
-            console.error('🔍 [DEBUG] Erro ao carregar modelos para ajuste:', error);
+            console.error('Erro ao carregar modelos para ajuste:', error);
             // Fallback para modelos hardcoded
             const availableModels = [
                 { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro (Google)' },
@@ -2159,10 +2179,22 @@ function loadAIModelsForAdjust() {
                 adjustModelSelect.appendChild(option);
             });
             
-            // Selecionar modelo default
-            const defaultOption = adjustModelSelect.querySelector('option[value="gemini-2.5-pro"]');
-            if (defaultOption) {
-                defaultOption.selected = true;
+            // Selecionar modelo original se disponível, senão usar o padrão
+            if (originalModelId) {
+                const originalOption = adjustModelSelect.querySelector(`option[value="${originalModelId}"]`);
+                if (originalOption) {
+                    originalOption.selected = true;
+                } else {
+                    const defaultOption = adjustModelSelect.querySelector('option[value="gemini-2.5-pro"]');
+                    if (defaultOption) {
+                        defaultOption.selected = true;
+                    }
+                }
+            } else {
+                const defaultOption = adjustModelSelect.querySelector('option[value="gemini-2.5-pro"]');
+                if (defaultOption) {
+                    defaultOption.selected = true;
+                }
             }
         });
 }
